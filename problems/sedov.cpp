@@ -53,14 +53,14 @@
 auto config_template()
 {
     return mara::config_template()
-    .item("nr",                   256)   // number of radial zones, per decade
-    .item("tfinal",              10.0)   // time to stop the simulation
+    .item("nr",                    64)   // number of radial zones, per decade
+    .item("tfinal",           10000.0)   // time to stop the simulation
     .item("print",                 10)   // the number of iterations between terminal outputs
-    .item("dfi",                  1.5)   // output interval (constant multiplier)
+    .item("dfi",                 1.05)   // output interval (constant multiplier)
     .item("rk_order",               2)   // Runge-Kutta order (1, 2, or 3)
     .item("cfl",                  0.5)   // courant number
-    .item("mindr",               1e-3)   // minimum cell length to impose in remeshing
-    .item("plm_theta",            1.5)   // PLM parameter
+    .item("mindr",                0.0)   // minimum cell length to impose in remeshing
+    .item("plm_theta",            1.0)   // PLM parameter
     .item("router",               1e3)   // outer boundary radius
     .item("move",                   1)   // whether to move the cells
     .item("envelop_mdot_index",   4.0)   // alpha in envelop mdot(t) = (t / t0)^alpha
@@ -74,8 +74,6 @@ auto config_template()
 
 static const auto gamma_law_index   = 4. / 3;
 static const auto temperature_floor = 0.0;
-
-
 
 
 //=============================================================================
@@ -95,50 +93,45 @@ inline auto tasks(solution_with_tasks_t p)
     return p.second;
 }
 
-
-
-
+// You can define your own like this:
+// For contant m-dot, rho~r^-2
+// For m-dot increasing linearly in time, rho~r^-3
+// For m-dot decreasing linearly in time, rho~r^-1
 auto wind_mass_loss_rate(const mara::config_t& run_config)
 {
-    auto envelop_mdot = unit_mass_rate(1.0);
-    auto engine_mdot  = unit_mass_rate(run_config.get_double("engine_mdot"));
-    auto engine_onset = unit_time(run_config.get_double("engine_onset"));
-    auto alpha        = run_config.get_double("envelop_mdot_index");
-
-    return [envelop_mdot, engine_mdot, alpha, engine_onset] (auto t)
+    return [] (dimensional::unit_time t) -> dimensional::unit_mass_rate
     {
-        return t < engine_onset
-        ? envelop_mdot * std::pow(t / unit_time(1.0), alpha)
-        : engine_mdot;
+        //auto t0   = dimensional::unit_time(1.0);
+	//auto mdot = dimensional::unit_mass_rate(1.0);
+        //return mdot * std::pow(t / t0, -2.0); 
+        return dimensional::unit_mass_rate(1000.0);	   //rho=r^-2 profile 
     };
 }
 
 auto wind_gamma_beta(const mara::config_t& run_config)
 {
-    auto m0              = unit_mass(1.0);
-    auto md              = unit_mass_rate(1.0);
-    auto engine_onset    = unit_time(run_config.get_double("engine_onset"));
-    auto engine_duration = unit_time(run_config.get_double("engine_duration"));
-    auto engine_u        = unit_scalar(run_config.get_double("engine_u"));
-    auto envelop_u       = unit_scalar(run_config.get_double("envelop_u"));
-    auto fred            = mara::fast_rise_exponential_decay(engine_onset, engine_duration);
-    auto psi             = run_config.get_double("envelop_u_index");
-    auto alpha           = run_config.get_double("envelop_mdot_index");
+    auto mass_loss_rate = wind_mass_loss_rate(run_config);
+    return [mass_loss_rate] (dimensional::unit_time t) -> dimensional::unit_scalar
+    { 
+	auto G_ambient  = dimensional::unit_scalar(1.01);   //Lorentz factor of the ambient medium
+        auto t_merger   = dimensional::unit_time(20.0);
+        auto t_f 	= dimensional::unit_time(19.9);    //t_f is the duration of the engine.
+	auto Gamma_f    = dimensional::unit_scalar(2.3);   //Intended final wind Lorentz factor  
+ 	auto t_m0       = t_merger - t_f;
+        auto delta_t    = t_merger - t;
 
-    auto integrated_envelop_mdot = [m0, md, alpha] (unit_time t)
-    {
-        return m0 + md * t * std::pow(t / unit_time(1.0), alpha) / (1 + alpha);
-    };
+	//t^(-1/3) profile
+	auto smooth 	= 0.5 * (1.0 + std::tanh((t - t_f) / t_m0));		
+	//auto max 	= std::max(1.0 , std::pow(delta_t / t_m0, 0.3333));
+	auto max        = std::max(0.01, std::pow(delta_t / t_f, 0.3333));
+	auto G 		= Gamma_f / max;
+	auto G_smooth 	= G * (1.0 - smooth);		    //Lorentz factor of the wind
+	auto G_sum 	= G_ambient + G_smooth;	
+	auto u0 	= std::sqrt(G_sum*G_sum - 1.0);
+	return u0;
 
-    return [integrated_envelop_mdot, envelop_u, engine_u, fred, psi] (auto t)
-    {
-        auto m0   = integrated_envelop_mdot(1.0);
-        auto m    = integrated_envelop_mdot(t);
-        return envelop_u * std::pow(m / m0, -psi) + engine_u * fred(t);
     };
 }
-
-
 
 
 //=============================================================================
@@ -152,9 +145,13 @@ auto wind_profile(const mara::config_t& run_config, unit_length r, unit_time t)
 
 auto initial_condition(const mara::config_t& run_config)
 {
-    return [run_config] (unit_length r) { return wind_profile(run_config, r, 1.0); };
-}
+    //For a stationary medium with a given (density, pressure):
+    //return [run_config] (unit_length r) { return srhd::primitive(0.01 , 0.001); };
 
+    //For a wind with 1/r^2 density profile:
+    return [run_config] (unit_length r) { return wind_profile(run_config, r, 1.0); };
+
+}
 auto recover_primitive()
 {
     return [] (auto u) { return srhd::recover_primitive(u, gamma_law_index, temperature_floor); };
@@ -244,8 +241,8 @@ solution_t remove_smallest_cell(const mara::config_t& run_config, solution_t sol
         return {
             solution.iteration,
             solution.time,
-            x1,
-            u1,
+            x1 | nd::to_shared(),
+            u1 | nd::to_shared(),
         };
     }
     return solution;
