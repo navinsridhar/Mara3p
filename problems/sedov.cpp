@@ -110,25 +110,23 @@ auto wind_mass_loss_rate(const mara::config_t& run_config)
 
 auto wind_gamma_beta(const mara::config_t& run_config)
 {
-    auto mass_loss_rate = wind_mass_loss_rate(run_config);
-    return [mass_loss_rate] (dimensional::unit_time t) -> dimensional::unit_scalar
+    return [] (dimensional::unit_time t) -> dimensional::unit_scalar
     { 
-	auto G_ambient  = dimensional::unit_scalar(1.01);   //Lorentz factor of the ambient medium
-        auto t_merger   = dimensional::unit_time(20.0);
-        auto t_f 	= dimensional::unit_time(19.9);    //t_f is the duration of the engine.
-	auto Gamma_f    = dimensional::unit_scalar(2.3);   //Intended final wind Lorentz factor  
- 	auto t_m0       = t_merger - t_f;
-        auto delta_t    = t_merger - t;
+    auto G_ambient    = dimensional::unit_scalar(1.01);   //Lorentz factor of the ambient medium
+    auto t_merger     = dimensional::unit_time(20.0);
+    auto t_f          = dimensional::unit_time(19.9);    //t_f is the duration of the engine.
+    auto Gamma_f      = dimensional::unit_scalar(2.3);   //Intended final wind Lorentz factor  
+    auto t_m0         = t_merger - t_f;
+    auto delta_t      = t_merger - t;
 
-	//t^(-1/3) profile
-	auto smooth 	= 0.5 * (1.0 + std::tanh((t - t_f) / t_m0));		
-	//auto max 	= std::max(1.0 , std::pow(delta_t / t_m0, 0.3333));
-	auto max        = std::max(0.01, std::pow(delta_t / t_f, 0.3333));
-	auto G 		= Gamma_f / max;
-	auto G_smooth 	= G * (1.0 - smooth);		    //Lorentz factor of the wind
-	auto G_sum 	= G_ambient + G_smooth;	
-	auto u0 	= std::sqrt(G_sum*G_sum - 1.0);
-	return u0;
+    // \Gamma \propto \Delta t^(-1/3) profile:
+    auto smooth       = 0.5 * (1.0 + std::tanh((t - t_f) / t_m0));      
+    auto max          = std::max(0.01, std::pow(delta_t / t_f, 0.3333));
+    auto G            = Gamma_f / max;
+    auto G_smooth     = G * (1.0 - smooth);         //Lorentz factor of the wind
+    auto G_sum        = G_ambient + G_smooth;   
+    auto u0           = std::sqrt(G_sum*G_sum - 1.0);
+    return u0;
 
     };
 }
