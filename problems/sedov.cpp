@@ -101,32 +101,59 @@ auto wind_mass_loss_rate(const mara::config_t& run_config)
 {
     return [] (dimensional::unit_time t) -> dimensional::unit_mass_rate
     {
-        //auto t0   = dimensional::unit_time(1.0);
-	//auto mdot = dimensional::unit_mass_rate(1.0);
-        //return mdot * std::pow(t / t0, -2.0); 
-        return dimensional::unit_mass_rate(1000.0);	   //rho=r^-2 profile 
+    
+    // Mdot ~ a^-3 => Mdot ~ \Delta t ^-3/4
+    auto t0     = dimensional::unit_time(1.0);  
+    auto Mdot0  = dimensional::unit_mass_rate(1000.0);
+    return Mdot0 * std::pow(t / t0, -0.75); 
+
+    // return dimensional::unit_mass_rate(1000.0);    //rho=r^-2 profile 
+
     };
 }
 
 auto wind_gamma_beta(const mara::config_t& run_config)
 {
-    return [] (dimensional::unit_time t) -> dimensional::unit_scalar
+    auto mass_loss_rate = wind_mass_loss_rate(run_config);
+    return [mass_loss_rate] (dimensional::unit_time t) -> dimensional::unit_scalar
     { 
-    auto G_ambient    = dimensional::unit_scalar(1.01);   //Lorentz factor of the ambient medium
-    auto t_merger     = dimensional::unit_time(20.0);
-    auto t_f          = dimensional::unit_time(19.9);    //t_f is the duration of the engine.
-    auto Gamma_f      = dimensional::unit_scalar(2.3);   //Intended final wind Lorentz factor  
-    auto t_m0         = t_merger - t_f;
-    auto delta_t      = t_merger - t;
+ 
+//  // \Gamma \propto \Delta t^(-1/3) profile relevant for MHD case, where Gamma = sigma^(1/3) = (Edot/Mdot)^(1/3):
 
-    // \Gamma \propto \Delta t^(-1/3) profile:
-    auto smooth       = 0.5 * (1.0 + std::tanh((t - t_f) / t_m0));      
-    auto max          = std::max(0.01, std::pow(delta_t / t_f, 0.3333));
-    auto G            = Gamma_f / max;
-    auto G_smooth     = G * (1.0 - smooth);         //Lorentz factor of the wind
-    auto G_sum        = G_ambient + G_smooth;   
-    auto u0           = std::sqrt(G_sum*G_sum - 1.0);
-    return u0;
+    // auto G_ambient    = dimensional::unit_scalar(1.01);       //Lorentz factor of the ambient medium
+    // auto Gamma_f      = dimensional::unit_scalar(2.3);               //Intended final wind Lorentz factor  
+    // auto t_merger     = dimensional::unit_time(20.0);
+    // auto t_f          = dimensional::unit_time(19.9);         //t_f is the duration of the engine.
+    // auto t_m0         = t_merger - t_f;
+    // auto delta_t      = t_merger - t;
+
+    // auto smooth       = 0.5 * (1.0 + std::tanh((t - t_f) / t_m0));      
+    // auto max          = std::max(0.01, std::pow(delta_t / t_f, 0.3333));
+    // auto G            = Gamma_f / max;
+    // auto G_smooth     = G * (1.0 - smooth);                   //Lorentz factor of the wind
+    // auto G_sum        = G_ambient + G_smooth;   
+    // auto u0           = std::sqrt(G_sum*G_sum - 1.0);
+    // return u0;
+    
+//  // \Gamma \propto \Delta t^(-1) profile obtained from Gamma = Edot/Mdot:
+
+      auto G_ambient    = dimensional::unit_scalar(1.01);        // Lorentz factor of the ambient medium
+      auto Edot0        = dimensional::unit_power(1000.0);       // Initial Wind luminosity
+      auto Mdot         = mass_loss_rate(t);                     // Initial mass loss rate (see above)
+      auto c2           = srhd::light_speed * srhd::light_speed;
+      auto a0           = dimensional::unit_length(5000000.0);   // cm
+      auto t_merger     = dimensional::unit_time(20.0);          // Time for merger after the simulation starts
+      auto t_f          = dimensional::unit_time(0.1);           // How long before merger should the engine be shut off?
+      auto delta_t      = t_merger - t;
+      auto t_shutoff    = t_merger - t_f;
+
+      // Evolution:
+      auto smooth       = 0.5 * (1.0 + std::tanh((t - t_shutoff) / t_f));
+      auto a            = a0 * std::max(1.0, std::pow((delta_t / t_shutoff) , 0.25));
+      auto Edot         = Edot0 * std::pow((a / a0) , -7) * (1.0 - smooth);
+      auto Gamma        = G_ambient + (Edot / (Mdot * c2));
+      auto u0           = std::sqrt(Gamma * Gamma - 1.0);
+      return u0;
 
     };
 }
