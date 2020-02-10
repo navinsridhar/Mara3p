@@ -103,9 +103,16 @@ auto wind_mass_loss_rate(const mara::config_t& run_config)
     {
     
     // Mdot ~ a^-3 => Mdot ~ \Delta t ^-3/4
-    auto t0     = dimensional::unit_time(1.0);  
+    auto t_merger     = dimensional::unit_time(20.0);          // Time for merger after the simulation starts
+    auto t_f          = dimensional::unit_time(0.1);           // How long before merger should the engine be shut off?
+    auto delta_t      = t_merger - t;
+    auto t_shutoff    = t_merger - t_f;
     auto Mdot0  = dimensional::unit_mass_rate(1000.0);
-    return Mdot0 * std::pow(t / t0, -0.75); 
+// return Mdot0 * std::pow((delta_t / t_shutoff) , -0.75); 
+    if (t < t_merger)
+    {return Mdot0 * std::pow((delta_t / t_shutoff) , -0.75);}
+    else 
+    {return dimensional::unit_mass_rate(1.0);}
 
     // return dimensional::unit_mass_rate(1000.0);    //rho=r^-2 profile 
 
