@@ -55,25 +55,31 @@ auto config_template()
     return mara::config_template()
     .item("nr",                    64)   // number of radial zones, per decade
     .item("tfinal",           10000.0)   // time to stop the simulation
+    .item("router",               1e4)   // outer boundary radius
     .item("print",                 10)   // the number of iterations between terminal outputs
     .item("dfi",                 1.05)   // output interval (constant multiplier)
     .item("rk_order",               2)   // Runge-Kutta order (1, 2, or 3)
-    .item("cfl",                  0.5)   // courant number
-    .item("mindr",                0.0)   // minimum cell length to impose in remeshing
+    .item("cfl",                 0.25)   // courant number
+    .item("mindr",               1e-4)   // minimum cell length to impose in remeshing
     .item("plm_theta",            1.0)   // PLM parameter
-    .item("router",               1e3)   // outer boundary radius
     .item("move",                   1)   // whether to move the cells
-    .item("envelop_mdot_index",   4.0)   // alpha in envelop mdot(t) = (t / t0)^alpha
-    .item("envelop_u_index",     0.22)   // psi in envelop u(m) = u1 (m / m1)^(-psi)
-    .item("envelop_u",          10.00)   // maximum gamma-beta in outer envelop
-    .item("engine_mdot",          1e4)   // engine mass rate
-    .item("engine_onset",        50.0)   // the engine onset time [inner boundary light-crossing time]
-    .item("engine_duration",    100.0)   // the engine duration   [inner boundary light-crossing time]
-    .item("engine_u",            10.0);  // the engine gamma-beta
+
+//  Physical simulation variables:
+    .item("a_0",                  2e7)   // NS initial separation (in cm)
+    .item("a_f",                  2e6)   // NS final separation (in cm)
+    .item("t_f",                 5e-4)   // Time to merger when a=af
+    .item("t_off",               1e-2)   // Time before merger the engine must be switched off 
+    .item("t_merger",             5.0)   // Time for merger when a=a0
+    .item("engine_mdot0",         1e3)   // engine mass rate at a=a0
+    .item("engine_edot0",         1e1)   // engine power at a=a0
+    .item("mdot_ambient",        1e-2)   // engine mass rate at a=a0
+    .item("edot_ambient",        1e-2)   // engine power at a=a0
+    .item("gamma_ambient",        1.5)   // engine power at a=a0
+    .item("engine_onset",         0.0);  // Used as reference point for time stepping. If 0, then the time-step happens uniformly logarithmically from t=0. If engine_onset > 0, then the time will be stepped logarithmically until that point, and after t > engine_onset, the time-stepper resets to use smaller delta t (as used right after t=0).
 }
 
 static const auto gamma_law_index   = 4. / 3;
-static const auto temperature_floor = 0.0;
+static const auto temperature_floor = 1e-6;
 
 
 //=============================================================================
@@ -93,98 +99,87 @@ inline auto tasks(solution_with_tasks_t p)
     return p.second;
 }
 
-// You can define your own like this:
-// For contant m-dot, rho~r^-2
-// For m-dot increasing linearly in time, rho~r^-3
-// For m-dot decreasing linearly in time, rho~r^-1
-auto wind_mass_loss_rate(const mara::config_t& run_config)
+
+auto semi_major_axis(const mara::config_t & run_config)
 {
-    return [] (dimensional::unit_time t) -> dimensional::unit_mass_rate
+    return [run_config] (dimensional::unit_time t) -> dimensional::unit_length
     {
-    
-    // Mdot ~ a^-3 => Mdot ~ \Delta t ^-3/4
-    auto t_merger     = dimensional::unit_time(20.0);          // Time for merger after the simulation starts
-    auto t_f          = dimensional::unit_time(0.1);           // How long before merger should the engine be shut off?
+    auto a_0          = unit_length(run_config.get_double("a_0"));
+    auto a_f          = unit_length(run_config.get_double("a_f"));
+    auto t_f          = unit_time(run_config.get_double("t_f"));
+    auto t_off        = unit_time(run_config.get_double("t_off"));
+
+    auto t_merger     = t_f * std::pow(a_0 / a_f, 4.0);       //Or just call t_merger from run_config
+    auto t_shutoff    = t_merger - t_off;
+    auto t_mf 	      = t_merger - t_f;
     auto delta_t      = t_merger - t;
-    auto t_shutoff    = t_merger - t_f;
+
     auto smooth       = 0.5 * (1.0 + std::tanh((t - t_shutoff) / t_f));
-    auto Mdot0        = dimensional::unit_mass_rate(1000.0);
-    auto Mdot_ambient = dimensional::unit_mass_rate(1.0);   
-    auto max          = std::max(0.01, std::pow((delta_t / t_shutoff) , 0.75));
-    auto Mdot         = Mdot0 / max;
+    // auto a            = a_0 * std::max(a_f / a_0, std::pow(delta_t / t_shutoff , 0.25));
+    auto a            = a_0 * std::max(0.1, std::pow(delta_t / t_mf , 0.25)) * (1 - smooth);    //0.1 = a_f/a_0
+    auto a_final      = a + a_f;
+    return a_final;
+    };
+}
+
+auto wind_mass_loss_rate(const mara::config_t & run_config)
+{
+    auto major_axis = semi_major_axis(run_config);
+    return [major_axis, run_config] (dimensional::unit_time t) -> dimensional::unit_mass_rate
+    {
+    auto a_0          = unit_length(run_config.get_double("a_0"));
+    auto a_f          = unit_length(run_config.get_double("a_f"));
+    auto t_f          = unit_time(run_config.get_double("t_f"));
+    auto t_merger     = t_f * std::pow(a_0 / a_f, 4.0);       //Or just call t_merger from run_config          
+    auto t_shutoff    = t_merger - t_f;
+    auto a            = major_axis(t);      
+
+    auto smooth       = 0.5 * (1.0 + std::tanh((t - t_shutoff) / t_f));
+    auto Mdot0        = unit_mass_rate(run_config.get_double("engine_mdot0"));
+    auto Mdot_ambient = unit_mass_rate(run_config.get_double("mdot_ambient"));
+    auto Mdot         = Mdot0 * std::max(1.0, std::pow((a / a_0) , -3.0));
     auto Mdot_smooth  = Mdot * (1.0 - smooth);
     auto Mdot_final   = Mdot_smooth + Mdot_ambient;
-    // printf("Mdot = %e \n", Mdot_final);
     return Mdot_final;
     };
 }
 
-auto wind_gamma_beta(const mara::config_t& run_config)
+auto wind_power(const mara::config_t & run_config)
+{
+    auto major_axis = semi_major_axis(run_config);
+    return [major_axis, run_config] (dimensional::unit_time t) -> dimensional::unit_power
+    {
+    auto a_0          = unit_length(run_config.get_double("a_0"));
+    auto a_f          = unit_length(run_config.get_double("a_f"));
+    auto t_f          = unit_time(run_config.get_double("t_f"));
+    auto t_merger     = t_f * std::pow(a_0 / a_f, 4.0);       //Or just call t_merger from run_config          
+    auto t_shutoff    = t_merger - t_f;
+    auto a            = major_axis(t);      
+
+    auto smooth       = 0.5 * (1.0 + std::tanh((t - t_shutoff) / t_f));
+    auto Edot0        = unit_power(run_config.get_double("engine_edot0"));
+    auto Edot_ambient = unit_power(run_config.get_double("edot_ambient"));
+    auto Edot         = Edot0 * std::max(1.0, std::pow((a / a_0) , -7.0));
+    auto Edot_smooth  = Edot * (1.0 - smooth);
+    auto Edot_final   = Edot_smooth + Edot_ambient;
+    return Edot_final;
+    };
+}
+
+auto wind_gamma_beta(const mara::config_t & run_config)
 {
     auto mass_loss_rate = wind_mass_loss_rate(run_config);
-    return [mass_loss_rate] (dimensional::unit_time t) -> dimensional::unit_scalar
+    auto power          = wind_power(run_config);
+    return [mass_loss_rate, power, run_config] (dimensional::unit_time t) -> dimensional::unit_scalar
     { 
- 
-//  // \Gamma \propto \Delta t^(-1/3) profile relevant for MHD case, where Gamma = sigma^(1/3) = (Edot/Mdot)^(1/3):
-
-    // auto G_ambient    = dimensional::unit_scalar(1.01);       //Lorentz factor of the ambient medium
-    // auto Gamma_f      = dimensional::unit_scalar(2.3);               //Intended final wind Lorentz factor  
-    // auto t_merger     = dimensional::unit_time(20.0);
-    // auto t_f          = dimensional::unit_time(19.9);         //t_f is the duration of the engine.
-    // auto t_m0         = t_merger - t_f;
-    // auto delta_t      = t_merger - t;
-
-    // auto smooth       = 0.5 * (1.0 + std::tanh((t - t_f) / t_m0));      
-    // auto max          = std::max(0.01, std::pow(delta_t / t_f, 0.3333));
-    // auto G            = Gamma_f / max;
-    // auto G_smooth     = G * (1.0 - smooth);                   //Lorentz factor of the wind
-    // auto G_sum        = G_ambient + G_smooth;   
-    // auto u0           = std::sqrt(G_sum*G_sum - 1.0);
-    // return u0;
-    
-//  // \Gamma \propto \Delta t^(-1) profile obtained from Gamma = Edot/Mdot:
-
-      auto G_ambient    = dimensional::unit_scalar(1.5);        // Lorentz factor of the ambient medium
-      auto Edot0        = dimensional::unit_power(1000.0);       // Initial Wind luminosity
-      auto Edot_ambient = dimensional::unit_power(1.0);       // Initial Wind luminosity
-      auto Mdot         = mass_loss_rate(t);                     // Initial mass loss rate (see above)
-      auto c2           = srhd::light_speed * srhd::light_speed;
-      auto a0           = dimensional::unit_length(1000.0);   // cm
-      auto t_merger     = dimensional::unit_time(20.0);          // Time for merger after the simulation starts
-      auto t_f          = dimensional::unit_time(0.1);           // How long before merger should the engine be shut off?
-      auto delta_t      = t_merger - t;
-      auto t_shutoff    = t_merger - t_f;
-
-      // Evolution:
-      auto smooth       = 0.5 * (1.0 + std::tanh((t - t_shutoff) / t_f));
-      auto a            = a0 * std::max(0.01, std::pow((delta_t / t_shutoff) , 0.25));
-      auto max          = std::max(0.001, std::pow((a / a0) , 7.0));
-      auto Edot         = Edot0 / max;
-      auto Edot_smooth  = Edot * (1.0 - smooth);
-      auto Edot_final   = Edot_smooth + Edot_ambient;
-      auto Gamma        = G_ambient + (Edot_final / (Mdot * c2));
-      auto u0           = std::sqrt(Gamma * Gamma - 1.0);
-      // printf("a = %e \n", Edot_final);
-      return u0;
-
-      // if (t < t_shutoff)
-      //   {   
-      //       auto smooth       = 0.5 * (1.0 + std::tanh((t - t_shutoff) / t_f));
-      //       auto a            = a0 * std::pow((delta_t / t_shutoff) , 0.25);
-      //       auto Edot         = Edot0 * std::pow((a / a0) , -7) * (1.0 - smooth);
-      //       auto Gamma        = G_ambient + (Edot / (Mdot * c2));
-      //       auto u0           = std::sqrt(Gamma * Gamma - 1.0);
-      //       return u0;
-      //   }
-      // else 
-      //   {   
-      //       auto smooth       = 0.5 * (1.0 + std::tanh((t - t_shutoff) / t_f));
-      //       auto Edot         = Edot0 * (1.0 - smooth);
-      //       auto Gamma        = G_ambient + (Edot / (Mdot * c2));
-      //       auto u0           = std::sqrt(Gamma * Gamma - 1.0);
-      //       return u0;
-      //   }
-
+    auto Edot          = power(t);                     
+    auto Mdot          = mass_loss_rate(t);                    
+    auto c2            = srhd::light_speed * srhd::light_speed;
+    auto gamma_ambient = unit_scalar(run_config.get_double("gamma_ambient"));
+    auto gamma         = (Edot / (Mdot * c2)) + gamma_ambient;
+    auto u0            = std::sqrt(gamma * gamma - 1.0);
+    //printf("Wind gamma = %e \n", gamma);
+    return u0;
     };
 }
 
