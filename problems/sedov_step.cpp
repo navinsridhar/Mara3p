@@ -114,7 +114,8 @@ auto wind_mass_loss_rate(const mara::config_t & run_config)
     auto Mdot_ambient = unit_mass_rate(run_config.get_double("mdot_ambient"));
     auto Mdot         = Mdot0;
     auto Mdot_smooth  = Mdot * (1.0 + smooth);
-    auto Mdot_final   = Mdot_smooth + Mdot_ambient;
+    // auto Mdot_final   = Mdot_smooth + Mdot_ambient;
+    auto Mdot_final = t < unit_time(0.1)+t_mf ? Mdot_smooth + Mdot_ambient : Mdot_ambient;
     return Mdot_final;
     };
 }
@@ -134,7 +135,8 @@ auto wind_power(const mara::config_t & run_config)
     auto Edot_ambient = unit_power(run_config.get_double("edot_ambient"));
     auto Edot         = Edot0;
     auto Edot_smooth  = Edot * (1.0 + 1e2*smooth);
-    auto Edot_final   = Edot_smooth + Edot_ambient;
+    // auto Edot_final   = Edot_smooth + Edot_ambient;
+    auto Edot_final = t < unit_time(0.1)+t_mf ? Edot_smooth + Edot_ambient : Edot_ambient;
     return Edot_final;
     };
 }
