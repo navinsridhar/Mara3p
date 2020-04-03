@@ -53,7 +53,7 @@
 auto config_template()
 {
     return mara::config_template()
-    .item("nr",                   256)   // number of radial zones, per decade
+    .item("nr",                    32)   // number of radial zones, per decade
     .item("tfinal",           10000.0)   // time to stop the simulation
     .item("router",               1e4)   // outer boundary radius
     .item("print",                 10)   // the number of iterations between terminal outputs
@@ -70,7 +70,7 @@ auto config_template()
     .item("t_f",                 5e-4)   // Time to merger when a=af
     .item("t_merger",             5.0)   // Time for merger when a=a0
     .item("engine_mdot0",         1e3)   // engine mass rate at a=a0
-    .item("engine_edot0",         3e2)   // engine power at a=a0
+    .item("engine_edot0",         1e3)   // engine power at a=a0
     .item("mdot_ambient",        1e-2)   // engine mass rate at a=a0
     .item("edot_ambient",        1e-2)   // engine power at a=a0
     .item("gamma_ambient",        1.5)   // engine power at a=a0
@@ -99,40 +99,21 @@ inline auto tasks(solution_with_tasks_t p)
 }
 
 
-auto semi_major_axis(const mara::config_t & run_config)
-{
-    return [run_config] (dimensional::unit_time t) -> dimensional::unit_length
-    {
-    auto a_0          = unit_length(run_config.get_double("a_0"));
-    auto a_f          = unit_length(run_config.get_double("a_f"));
-    auto t_f          = unit_time(run_config.get_double("t_f"));
-    auto t_merger     = t_f * std::pow(a_0 / a_f, 4.0);       //Or just call t_merger from run_config
-    auto t_mf 	      = t_merger - t_f;
-    auto delta_t      = t_merger - t;
-
-    auto a            = a_0 * std::max(0.1, std::pow(delta_t / t_mf , 0.25));    //0.1 = a_f/a_0
-    auto a_final      = a + a_f;
-    return a_final;
-    };
-}
-
 auto wind_mass_loss_rate(const mara::config_t & run_config)
 {
-    auto major_axis = semi_major_axis(run_config);
-    return [major_axis, run_config] (dimensional::unit_time t) -> dimensional::unit_mass_rate
+    return [run_config] (dimensional::unit_time t) -> dimensional::unit_mass_rate
     {
     auto a_0          = unit_length(run_config.get_double("a_0"));
     auto a_f          = unit_length(run_config.get_double("a_f"));
     auto t_f          = unit_time(run_config.get_double("t_f"));
     auto t_merger     = t_f * std::pow(a_0 / a_f, 4.0);       //Or just call t_merger from run_config          
     auto t_mf         = t_merger - t_f;
-    auto a            = major_axis(t);      
 
     auto smooth       = 0.5 * (1.0 + std::tanh((t - t_mf) / t_f));
     auto Mdot0        = unit_mass_rate(run_config.get_double("engine_mdot0"));
     auto Mdot_ambient = unit_mass_rate(run_config.get_double("mdot_ambient"));
-    auto Mdot         = Mdot0 * std::max(1.0, std::pow((a / a_0) , -3.0));
-    auto Mdot_smooth  = Mdot * (1.0 - smooth);
+    auto Mdot         = Mdot0;
+    auto Mdot_smooth  = Mdot * (1.0 + smooth);
     auto Mdot_final   = Mdot_smooth + Mdot_ambient;
     return Mdot_final;
     };
@@ -140,21 +121,19 @@ auto wind_mass_loss_rate(const mara::config_t & run_config)
 
 auto wind_power(const mara::config_t & run_config)
 {
-    auto major_axis = semi_major_axis(run_config);
-    return [major_axis, run_config] (dimensional::unit_time t) -> dimensional::unit_power
+    return [run_config] (dimensional::unit_time t) -> dimensional::unit_power
     {
     auto a_0          = unit_length(run_config.get_double("a_0"));
     auto a_f          = unit_length(run_config.get_double("a_f"));
     auto t_f          = unit_time(run_config.get_double("t_f"));
     auto t_merger     = t_f * std::pow(a_0 / a_f, 4.0);       //Or just call t_merger from run_config          
     auto t_mf         = t_merger - t_f;
-    auto a            = major_axis(t);      
 
     auto smooth       = 0.5 * (1.0 + std::tanh((t - t_mf) / t_f));
     auto Edot0        = unit_power(run_config.get_double("engine_edot0"));
     auto Edot_ambient = unit_power(run_config.get_double("edot_ambient"));
-    auto Edot         = Edot0 * std::max(1.0, std::pow((a / a_0) , -7.0));
-    auto Edot_smooth  = Edot * (1.0 - smooth);
+    auto Edot         = Edot0;
+    auto Edot_smooth  = Edot * (1.0 + 1e2*smooth);
     auto Edot_final   = Edot_smooth + Edot_ambient;
     return Edot_final;
     };
