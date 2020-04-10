@@ -65,6 +65,7 @@ auto config_template()
     .item("move",                   1)   // whether to move the cells
 
 //  Physical simulation variables:
+    .item("power_law_m",          3.0)   // Wind model power-law
     .item("a_0",                  2e7)   // NS initial separation (in cm)
     .item("a_f",                  2e6)   // NS final separation (in cm)
     .item("t_f",                 5e-4)   // Time to merger when a=af
@@ -131,7 +132,8 @@ auto wind_mass_loss_rate(const mara::config_t & run_config)
     auto smooth       = 0.5 * (1.0 + std::tanh((t - t_mf) / t_f));
     auto Mdot0        = unit_mass_rate(run_config.get_double("engine_mdot0"));
     auto Mdot_ambient = unit_mass_rate(run_config.get_double("mdot_ambient"));
-    auto Mdot         = Mdot0 * std::max(1.0, std::pow((a / a_0) , -3.0));
+    auto m            = unit_scalar(run_config.get_double("power_law_m"));
+    auto Mdot         = Mdot0 * std::max(1.0, std::pow((a / a_0) , -m));
     auto Mdot_smooth  = Mdot * (1.0 - smooth);
     auto Mdot_final   = Mdot_smooth + Mdot_ambient;
     return Mdot_final;
