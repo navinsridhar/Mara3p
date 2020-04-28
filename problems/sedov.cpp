@@ -53,14 +53,15 @@ auto config_template()
 {
     return mara::config_template()
 
-    .item("nr",                   256)   // number of radial zones, per decade
+    .item("nr",                    64)   // number of radial zones, per decade
     .item("tfinal",           10000.0)   // time to stop the simulation
     .item("router",               1e4)   // outer boundary radius
     .item("print",                 10)   // the number of iterations between terminal outputs
     .item("dfi",                 1.05)   // output interval (constant multiplier)
     .item("rk_order",               2)   // Runge-Kutta order (1, 2, or 3)
     .item("cfl",                 0.25)   // courant number
-    .item("mindr",               1e-4)   // minimum cell length to impose in remeshing
+    .item("mindr",               5e-4)   // minimum dr/r to impose in remeshing
+    .item("maxdr",               5e-4)   // maximum dr/r to impose in remeshing
     .item("plm_theta",            1.0)   // PLM parameter
     .item("move",                   1)   // whether to move the cells
 
@@ -71,7 +72,7 @@ auto config_template()
     .item("t_f",                 5e-4)   // Time to merger when a=af
     .item("t_merger",             5.0)   // Time for merger when a=a0
     .item("engine_mdot0",         1e3)   // engine mass rate at a=a0
-    .item("engine_edot0",         3e2)   // engine power at a=a0
+    .item("engine_edot0",         1e2)   // engine power at a=a0
     .item("mdot_ambient",        1e-2)   // engine mass rate at a=a0
     .item("edot_ambient",        1e-2)   // engine power at a=a0
     .item("gamma_ambient",        1.5)   // engine power at a=a0
