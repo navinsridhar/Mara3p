@@ -4,10 +4,15 @@
 
 *.o
 *.d
+*.pyc
 *.h5
 *.vtk
 *.mp4
-*.in
+*.dot
+.DS_Store
 
-undead
-work
+/src/mara.hpp
+/Makefile.in
+/undead
+/work
+/media

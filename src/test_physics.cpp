@@ -28,9 +28,11 @@
 
 
 #define DO_UNIT_TESTS
+#include "physics_iso2d.hpp"
 #include "physics_euler.hpp"
-#include "physics_srhd.hpp"
 #include "physics_mhd.hpp"
+#include "physics_srhd.hpp"
+#include "physics_two_body.hpp"
 
 
 
@@ -38,8 +40,10 @@
 //=============================================================================
 int test_physics()
 {
+    test_iso2d();
     test_euler();
-    test_srhd();
     test_mhd();
+    test_srhd();
+    test_two_body();
     return 0;
 }

@@ -1,6 +1,6 @@
 /**
  ==============================================================================
- Copyright 2019, Jonathan Zrake
+ Copyright 2019-2020, Jonathan Zrake
 
  Permission is hereby granted, free of charge, to any person obtaining a copy of
  this software and associated documentation files (the "Software"), to deal in
@@ -28,6 +28,7 @@
 
 #pragma once
 #include <algorithm>
+#include <deque>
 #include <future>
 #include <mutex>
 #include <thread>
@@ -55,6 +56,7 @@ public:
         operator bool() const { return run != nullptr; }
         std::function<void(void)> run; 
         std::shared_ptr<int> tag;
+        int priority = 0;
     };
 
 
@@ -79,7 +81,7 @@ public:
 
         for (int n = 0; n < num_workers; ++n)
         {
-            threads.push_back(make_worker(n));
+            threads.push_back(make_worker());
         }
     }
 
@@ -88,7 +90,10 @@ public:
     {
         if (! stop)
         {
-            stop = true;
+            {
+                std::unique_lock<std::mutex> lock(mutex);
+                stop = true;
+            }
             condition.notify_all();
 
             for (auto& thread : threads)
@@ -98,20 +103,23 @@ public:
         }
     }
 
+
     std::size_t size()
     {
         std::lock_guard<std::mutex> lock(mutex);
         return threads.size();
     }
 
+
     std::size_t job_count()
     {
         std::lock_guard<std::mutex> lock(mutex);
-        return pending_tasks.size() + running_tasks.size();
+        return waiting_tasks.size() + running_tasks.size();
     }
 
+
     template<typename Function, typename... Args>
-    auto enqueue(Function&& fn, Args&&... args)
+    auto enqueue(int priority, Function&& fn, Args&&... args)
     {        
         using result_type = std::invoke_result_t<Function, Args...>;
         auto promised_result = std::make_shared<std::promise<result_type>>();
@@ -124,18 +132,31 @@ public:
             catch (...) {
                 promised_result->set_exception(std::current_exception());
             }
-        });
+        }, priority);
         return promised_result->get_future();
+    }
+
+
+    template<typename Function, typename... Args>
+    auto enqueue(Function&& fn, Args&&... args)
+    {
+        return enqueue(0, fn, args...);
+    }
+
+
+    auto scheduler(int priority=0)
+    {
+        return [this, priority] (auto f) { return enqueue(priority, f); };
     }
 
 
 private:
 
 
-    void enqueue_internal(std::function<void(void)> run)
+    void enqueue_internal(std::function<void(void)> run, int priority)
     {
         std::lock_guard<std::mutex> lock(mutex);
-        pending_tasks.push_back({run, std::make_shared<int>()});
+        waiting_tasks.push_back({run, std::make_shared<int>(), priority});
         condition.notify_one();
     }
 
@@ -143,7 +164,7 @@ private:
     /**
      * Convenience method to find a task with the given tag.
      */
-    std::vector<task_t>::iterator tagged(int* tag, std::vector<task_t>& v)
+    std::deque<task_t>::iterator tagged(int* tag, std::deque<task_t>& v)
     {
         return std::find_if(v.begin(), v.end(), [tag] (const auto& t) { return t.tag.get() == tag; });
     }
@@ -155,18 +176,23 @@ private:
      * is returned. That should only be the case when the pool is shutting
      * down.
      */
-    task_t next(int id)
+    task_t next()
     {
         std::unique_lock<std::mutex> lock(mutex);
-        condition.wait(lock, [this] { return stop || ! pending_tasks.empty(); });
+        condition.wait(lock, [this] { return stop || ! waiting_tasks.empty(); });
 
-        if (pending_tasks.empty())
+        if (waiting_tasks.empty())
         {
             return {};
         }
 
-        auto task = pending_tasks.front();
-        pending_tasks.erase(pending_tasks.begin());
+        auto less_priority = [] (const auto& a, const auto& b) { return a.priority < b.priority; };
+        auto task_iter = std::max_element(waiting_tasks.begin(), waiting_tasks.end(), less_priority);
+
+        // auto task_iter = waiting_tasks.begin();
+
+        auto task = *task_iter;
+        waiting_tasks.erase(task_iter);
         running_tasks.push_back(task);
 
         return task;
@@ -187,11 +213,11 @@ private:
     /**
      * Called by the constructor to create the workers.
      */
-    std::thread make_worker(int id)
+    std::thread make_worker()
     {
-        return std::thread([this, id] ()
+        return std::thread([this] ()
         {
-            while (auto task = next(id))
+            while (auto task = next())
             {
                 task.run();
                 complete(task.tag.get());
@@ -202,8 +228,8 @@ private:
 
     //=========================================================================
     std::vector<std::thread> threads;
-    std::vector<task_t> pending_tasks;
-    std::vector<task_t> running_tasks;
+    std::deque<task_t> waiting_tasks;
+    std::deque<task_t> running_tasks;
     std::condition_variable condition;
     std::atomic<bool> stop = {false};
     std::mutex mutex;

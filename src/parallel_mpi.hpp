@@ -79,7 +79,16 @@ namespace mpi
             case operation::maxloc: return MPI_MAXLOC;
             case operation::minloc: return MPI_MINLOC;
         }
-    }    
+        throw std::invalid_argument("mpi::get_op (unknown MPI operation)");
+    }
+
+    inline void throw_unless_valid_tag(int tag)
+    {
+        if (tag >= MPI_TAG_UB)
+        {
+            throw std::overflow_error("tag >= MPI_TAG_UB");
+        }
+    }
 }
 
 
@@ -179,7 +188,7 @@ public:
         {
             if (! is_ready())
             {
-                MPI_Cancel(&request);                
+                MPI_Cancel(&request);
             }
             MPI_Request_free(&request);
         }
@@ -365,6 +374,7 @@ public:
     Communicator(Communicator&& other)
     {
         comm = other.comm;
+        owned = other.owned;
         other.comm = MPI_COMM_NULL;
     }
 
@@ -388,6 +398,7 @@ public:
 
         comm = other.comm;
         other.comm = MPI_COMM_NULL;
+        other.owned = true;
         return *this;
     }
 
@@ -468,6 +479,7 @@ public:
      */
     Status probe(int rank=any_source, int tag=any_tag) const
     {
+        throw_unless_valid_tag(tag);
         MPI_Status status;
         MPI_Probe(rank, tag, comm, &status);
         return status;
@@ -480,6 +492,7 @@ public:
      */
     Status iprobe(int rank=any_source, int tag=any_tag) const
     {
+        throw_unless_valid_tag(tag);
         MPI_Status status;
         int flag;
         MPI_Iprobe(rank, tag, comm, &flag, &status);
@@ -498,6 +511,7 @@ public:
      */
     buffer_t recv(int source=any_source, int tag=any_tag) const
     {
+        throw_unless_valid_tag(tag);
         auto status = probe(source, tag);
         auto buf = buffer_t(status.count(), 0);
 
@@ -515,6 +529,7 @@ public:
      */
     Request irecv(int source=any_source, int tag=any_tag) const
     {
+        throw_unless_valid_tag(tag);
         auto status = iprobe(source, tag);
 
         if (status.is_null())
@@ -538,6 +553,7 @@ public:
      */
     void send(buffer_t buf, int rank, int tag=0) const
     {
+        throw_unless_valid_tag(tag);
         MPI_Send(&buf[0], buf.size(), MPI_CHAR, rank, tag, comm);
     }
 
@@ -547,6 +563,7 @@ public:
      */
     buffer_t sendrecv(buffer_t sendbuf, int dest, int source, int tag=0)
     {
+        throw_unless_valid_tag(tag);
         auto status  = probe(source, tag);
         auto recvbuf = buffer_t(status.count(), 0);
 
@@ -573,8 +590,9 @@ public:
      * idea. In practice you'll probably store the request somewhere and check
      * on it after a while.
      */
-    Request isend(buffer_t&& buf, int rank, int tag=0) const
+    Request isend(buffer_t buf, int rank, int tag=0) const
     {
+        throw_unless_valid_tag(tag);
         MPI_Request request;
         MPI_Isend(&buf[0], buf.size(), MPI_CHAR, rank, tag, comm, &request);
 

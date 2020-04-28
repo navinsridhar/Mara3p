@@ -1,7 +1,6 @@
-
 /**
  ==============================================================================
- Copyright 2019, Jonathan Zrake
+ Copyright 2020, Jonathan Zrake
 
  Permission is hereby granted, free of charge, to any person obtaining a copy of
  this software and associated documentation files (the "Software"), to deal in
@@ -27,29 +26,22 @@
 
 
 
-#include "core_unit_test.hpp"
-
-
-
-
-int test_app();
-int test_core();
-int test_mesh();
-int test_model();
-int test_physics();
+#pragma once
+#include "app_hdf5.hpp"
+#include "minidisk.hpp"
 
 
 
 
 //=============================================================================
-int main()
-{
-    start_unit_tests();
-    test_app();
-    test_core();
-    test_mesh();
-    test_model();
-    test_physics();
-    report_test_results();
-    return 0;
-}
+namespace h5 {
+
+void read(const Group& group, std::string name, minidisk::side_effect_t& side_effect);
+void read(const Group& group, std::string name, minidisk::schedule_t& schedule);
+void read(const Group& group, std::string name, minidisk::solution_t& solution);
+
+void write(const Group& group, std::string name, const minidisk::side_effect_t& side_effect);
+void write(const Group& group, std::string name, const minidisk::schedule_t& schedule);
+void write(const Group& group, std::string name, const minidisk::solution_t& solution);
+
+} // namespace h5

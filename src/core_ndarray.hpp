@@ -107,6 +107,12 @@ constexpr std::size_t size(uivec_t<Rank>)
 }
 
 template<uint Rank>
+auto as_tuple(const uivec_t<Rank>& t)
+{
+    return t.impl;
+}
+
+template<uint Rank>
 auto begin(const uivec_t<Rank>& t)
 {
     return std::begin(t.impl);
@@ -573,10 +579,11 @@ inline auto range(long i1)
     return range(0, i1);
 }
 
-inline auto linspace(double x0, double x1, uint count)
+template<typename T>
+auto linspace(T x0, T x1, uint count)
 {
     return make_array(
-        indexing([=] (auto i) { return x0 + i * (x1 - x0) / (count - 1); }),
+        indexing([=] (auto i) { return x0 + (x1 - x0) * double(i) / double(count - 1); }),
         uivec(count));
 }
 
@@ -645,6 +652,18 @@ auto map(array_t<ProviderType, Rank> array, FunctionType function)
     return make_array(
         [array, function] (auto i) { return function(array(i)); },
         shape(array));
+}
+
+template<typename ProviderType, uint Rank, typename FunctionType>
+auto maps(array_t<ProviderType, Rank> array, FunctionType function)
+{
+    return to_shared(map(array, function));
+}
+
+template<typename ProviderType, uint Rank, typename FunctionType>
+auto mapv(array_t<ProviderType, Rank> array, FunctionType function)
+{
+    return map(array, [function] (auto a) { return std::apply(function, a); });
 }
 
 template<typename ProviderType1, typename ProviderType2, uint Rank>
@@ -758,23 +777,11 @@ auto to_dynamic(array_t<ProviderType, Rank> array)
 
 
 //=============================================================================
-template<std::size_t Index>
-auto get()
-{
-    return [] (auto a) { return get<Index>(a); };
-}
-
-template<typename FunctionType>
-auto map(FunctionType f)
-{
-    return [f] (auto a) { return map(a, f); };
-}
-
-template<typename ProviderType, uint Rank>
-inline auto concat(array_t<ProviderType, Rank> b, uint axis=0)
-{
-    return [=] (auto a) { return concat(a, b, axis); };
-}
+template<std::size_t I> auto get() { return [] (auto a) { return get<I>(a); }; }
+template<typename F> auto map (F f) { return [f] (auto a) { return map (a, f); }; }
+template<typename F> auto maps(F f) { return [f] (auto a) { return maps(a, f); }; }
+template<typename F> auto mapv(F f) { return [f] (auto a) { return mapv(a, f); }; }
+template<typename P, uint R> auto concat(array_t<P, R> b, uint axis=0) { return [=] (auto a) { return concat(a, b, axis); }; }
 
 inline auto freeze    (uint a, uint i)         { return [=] (auto array) { return freeze     (array, a, i); }; }
 inline auto new_axis  (uint a)                 { return [=] (auto array) { return new_axis   (array, a); }; }

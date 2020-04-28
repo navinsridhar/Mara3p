@@ -30,8 +30,7 @@
 #include "scheme_plm_gradient.hpp"
 #include "scheme_sedov2d.hpp"
 
-static const double plm_theta = 1.0;
-static const double temperature_floor = 0.0;
+static const double temperature_floor = 1e-6;
 
 
 
@@ -108,7 +107,7 @@ nd::shared_array<dimensional::unit_volume, 1> sedov::cell_volumes(radial_track_t
 sedov::radial_track_t sedov::generate_radial_track(
     dimensional::unit_length r0,
     dimensional::unit_length r1,
-    dimensional::unit_scalar theta0, 
+    dimensional::unit_scalar theta0,
     dimensional::unit_scalar theta1,
     dimensional::unit_scalar aspect)
 {
@@ -188,9 +187,10 @@ nd::shared_array<srhd::primitive_t, 1> sedov::recover_primitive(
 //=============================================================================
 nd::shared_array<sedov::primitive_per_length_t, 1> sedov::radial_gradient(
     radial_track_t track,
-    nd::shared_array<srhd::primitive_t, 1> pc)
+    nd::shared_array<srhd::primitive_t, 1> pc,
+    bool use_plm)
 {
-    auto plm = mara::plm_gradient(plm_theta);
+    auto plm = mara::plm_gradient(use_plm ? 1.0 : 0.0);
     auto xc3 = cell_center_radii(track) | nd::adjacent_zip3();
     auto pc3 = pc | nd::adjacent_zip3();
 
@@ -250,7 +250,7 @@ srhd::primitive_t sedov::sample(track_data_t track_data, dimensional::unit_lengt
     auto r0 = tr.face_radii(index + 0);
     auto r1 = tr.face_radii(index + 1);
     auto rc = 0.5 * (r0 + r1);
-    
+
     return pc(index) + dc(index) * (r - rc);
 }
 
@@ -258,12 +258,12 @@ srhd::primitive_t sedov::sample(track_data_t track_data, dimensional::unit_lengt
 
 
 //=============================================================================
-nd::shared_array<sedov::polar_godunov_data_t, 1> sedov::polar_godunov_data(track_data_t t0, track_data_t t1, track_data_t t2, track_data_t t3)
+nd::shared_array<sedov::polar_godunov_data_t, 1> sedov::polar_godunov_data(track_data_t t0, track_data_t t1, track_data_t t2, track_data_t t3, bool use_plm)
 {
     auto nhat = geometric::unit_vector_on(2);
     auto mode = srhd::riemann_solver_mode_hllc_fluxes_t();
     auto face = mesh::transverse_faces(std::get<0>(t1).face_radii, std::get<0>(t2).face_radii);
-    auto plm  = mara::plm_gradient(plm_theta);
+    auto plm  = mara::plm_gradient(1.0);
 
     return nd::make_array(nd::indexing([=] (nd::uint i) -> polar_godunov_data_t
     {
@@ -277,7 +277,7 @@ nd::shared_array<sedov::polar_godunov_data_t, 1> sedov::polar_godunov_data(track
             auto qr = std::get<0>(t2).theta0; // NOTE: ql and qr must be equal
             auto rf = 0.5 * (ri + ro);
 
-            if (size(std::get<0>(t0).face_radii) == 0 || size(std::get<0>(t3).face_radii) == 0)
+            if (! use_plm || size(std::get<0>(t0).face_radii) == 0 || size(std::get<0>(t3).face_radii) == 0)
             {
                 // If either the left-most or right-most track data is missing, then
                 // forego extrapolation in the polar direction.
@@ -376,22 +376,43 @@ std::pair<sedov::radial_track_t, nd::shared_array<srhd::conserved_t, 1>> sedov::
     auto imin = nd::argmin(aspect)[0];
     auto imax = nd::argmax(aspect)[0];
 
-    if (front(rf) < dimensional::unit_length(0.25))
+    auto make_track = [track, minimum_cell_aspect_ratio, maximum_cell_aspect_ratio] (auto rf, auto uc)
     {
-        rf = rf | nd::select(0, 1) | nd::to_shared();
-        uc = uc | nd::select(0, 1) | nd::to_shared();
-    }
-    else if (aspect(imax) > maximum_cell_aspect_ratio)
-    {
-        std::tie(rf, uc) = nd::add_partition(rf, uc, imax);
-    }
-    else if (imin > 0 && imin < size(uc) && aspect(imin) < minimum_cell_aspect_ratio)
-    {
-        std::tie(rf, uc) = nd::remove_partition(rf, uc, imin);
-    }
+        return remesh({rf, track.theta0, track.theta1}, uc, minimum_cell_aspect_ratio, maximum_cell_aspect_ratio);
+    };
 
-    track.face_radii = rf;   
+    auto make_track_and_return = [track] (auto rf, auto uc)
+    {
+        return std::make_pair(radial_track_t{rf, track.theta0, track.theta1}, uc);
+    };
 
+    if (front(rf) < dimensional::unit_length(1.0))
+    {
+        return make_track(rf | nd::select(0, 1) | nd::to_shared(), uc | nd::select(0, 1) | nd::to_shared());
+    }
+    if (aspect(imax) > maximum_cell_aspect_ratio)
+    {
+        return std::apply(make_track_and_return, nd::add_partition(rf, uc, imax));
+    }
+    if (aspect(imin) < minimum_cell_aspect_ratio)
+    {
+        if (imin == 0)
+        {
+            return std::apply(make_track, nd::remove_partition(rf, uc, 1));
+        }
+        if (imin + 1 == size(aspect))
+        {
+            return std::apply(make_track, nd::remove_partition(rf, uc, imin));
+        }
+        if (aspect(imin - 1) <= aspect(imin + 1))
+        {
+            return std::apply(make_track, nd::remove_partition(rf, uc, imin));
+        }
+        if (aspect(imin - 1) >= aspect(imin + 1))
+        {
+            return std::apply(make_track, nd::remove_partition(rf, uc, imin + 1));
+        }
+    }
     return std::pair(track, uc);
 }
 

@@ -28,6 +28,7 @@
 
 #pragma once
 #include <tuple>
+#include <functional>
 
 
 
@@ -38,7 +39,7 @@ namespace numeric {
 namespace detail {
 
 template<typename... Ts, typename... Us, std::size_t... Is>
-auto zip_tuple_impl(std::tuple<Ts...> t, std::tuple<Us...> u, std::index_sequence<Is...>)
+auto zip_tuples_impl(std::tuple<Ts...> t, std::tuple<Us...> u, std::index_sequence<Is...>)
 {
     return std::tuple(std::pair(std::get<Is>(t), std::get<Is>(u))...);
 }
@@ -46,7 +47,7 @@ auto zip_tuple_impl(std::tuple<Ts...> t, std::tuple<Us...> u, std::index_sequenc
 template<typename... Ts, typename... Us>
 auto zip_tuples(std::tuple<Ts...> t, std::tuple<Us...> u)
 {
-    return zip_tuple_impl(t, u, std::make_index_sequence<sizeof...(Ts)>());
+    return zip_tuples_impl(t, u, std::make_index_sequence<sizeof...(Ts)>());
 }
 
 template<typename FunctionType, typename... Ts>
@@ -70,6 +71,8 @@ auto apply_of(FunctionType f)
 template<typename... Ts>
 struct tuple_t
 {
+    tuple_t(std::tuple<Ts...> impl) : impl(impl) {}
+    tuple_t() {}
     std::tuple<Ts...> impl;
 };
 
@@ -109,6 +112,12 @@ template<std::size_t I, typename... Ts, typename = std::enable_if_t<I < sizeof..
 auto& get(tuple_t<Ts...>& t)
 {
     return std::get<I>(t.impl);
+}
+
+template<typename... Ts>
+auto as_tuple(tuple_t<Ts...> t)
+{
+    return t.impl;
 }
 
 template<typename... Ts, typename FunctionType>
