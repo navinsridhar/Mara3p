@@ -26,7 +26,6 @@
 
 
 
-// #define SRHD_NO_EXCEPTIONS
 #include "app_config.hpp"
 #include "app_control.hpp"
 #include "app_hdf5.hpp"
@@ -53,24 +52,27 @@
 auto config_template()
 {
     return mara::config_template()
-    .item("nr",                    32)   // number of radial zones, per decade
+
+    .item("nr",                   256)   // number of radial zones, per decade
     .item("tfinal",           10000.0)   // time to stop the simulation
     .item("router",               1e4)   // outer boundary radius
     .item("print",                 10)   // the number of iterations between terminal outputs
     .item("dfi",                 1.05)   // output interval (constant multiplier)
     .item("rk_order",               2)   // Runge-Kutta order (1, 2, or 3)
     .item("cfl",                 0.25)   // courant number
-    .item("mindr",               1e-4)   // minimum cell length to impose in remeshing
+    .item("mindr",               1e-4)   // minimum dr/r to impose in remeshing
+    .item("maxdr",               1e-3)   // maximum dr/r to impose in remeshing
     .item("plm_theta",            1.0)   // PLM parameter
     .item("move",                   1)   // whether to move the cells
 
 //  Physical simulation variables:
+    .item("power_law_m",          3.0)   // Wind model power-law
     .item("a_0",                  2e7)   // NS initial separation (in cm)
     .item("a_f",                  2e6)   // NS final separation (in cm)
     .item("t_f",                 5e-4)   // Time to merger when a=af
     .item("t_merger",             5.0)   // Time for merger when a=a0
     .item("engine_mdot0",         1e3)   // engine mass rate at a=a0
-    .item("engine_edot0",         1e3)   // engine power at a=a0
+    .item("engine_edot0",         1e1)   // engine power at a=a0
     .item("mdot_ambient",        1e-2)   // engine mass rate at a=a0
     .item("edot_ambient",        1e-2)   // engine power at a=a0
     .item("gamma_ambient",        1.5)   // engine power at a=a0
@@ -157,6 +159,7 @@ auto wind_gamma_beta(const mara::config_t & run_config)
     return u0;
     };
 }
+
 
 
 //=============================================================================
@@ -253,30 +256,59 @@ solution_t add_inner_cell(const mara::config_t& run_config, solution_t solution)
     return solution;
 }
 
-solution_t remove_smallest_cell(const mara::config_t& run_config, solution_t solution)
+solution_t split_join_cells(const mara::config_t& run_config, solution_t solution)
 {
-    auto mindr = unit_length(run_config.get_double("mindr"));
-    auto dr    = spherical_mesh_geometry_t::cell_spacings(solution.vertices);
-    auto imin  = nd::argmin(dr)[0];
+    auto maxdr  = run_config.get_double("maxdr");
+    auto mindr  = run_config.get_double("mindr");
+    auto uc     = solution.conserved;
+    auto rf     = solution.vertices;
+    auto rc     = spherical_mesh_geometry_t::cell_centers(solution.vertices);
+    auto dr     = spherical_mesh_geometry_t::cell_spacings(solution.vertices);
+    auto aspect = dr / rc;
+    auto imin   = nd::argmin(aspect)[0];
+    auto imax   = nd::argmax(aspect)[0];
 
-    if (imin > 0 && imin < size(solution.conserved) && dr(imin) < mindr)
+    auto construct = [solution] (auto x1, auto u1) -> solution_t
     {
-        auto [x1, u1] = nd::remove_partition(solution.vertices, solution.conserved, imin);
-
         return {
             solution.iteration,
             solution.time,
             x1 | nd::to_shared(),
             u1 | nd::to_shared(),
         };
+    };
+
+    if (aspect(imax) > maxdr)
+    {
+        return std::apply(construct, nd::add_partition(rf, uc, imax));
+    }
+
+    if (aspect(imin) < mindr)
+    {
+        if (imin == 0)
+        {
+            return split_join_cells(run_config, std::apply(construct, nd::remove_partition(rf, uc, 1)));
+        }
+        if (imin + 1 == size(aspect))
+        {
+            return split_join_cells(run_config, std::apply(construct, nd::remove_partition(rf, uc, imin)));
+        }
+        if (aspect(imin - 1) <= aspect(imin + 1))
+        {
+            return split_join_cells(run_config, std::apply(construct, nd::remove_partition(rf, uc, imin)));
+        }
+        if (aspect(imin - 1) >= aspect(imin + 1))
+        {
+            return split_join_cells(run_config, std::apply(construct, nd::remove_partition(rf, uc, imin + 1)));
+        }
     }
     return solution;
 }
 
 solution_t remesh(const mara::config_t& run_config, solution_t solution)
 {
-    solution = add_inner_cell      (run_config, solution);
-    solution = remove_smallest_cell(run_config, solution);
+    solution = add_inner_cell  (run_config, solution);
+    solution = split_join_cells(run_config, solution);
     return solution;
 }
 
@@ -364,11 +396,6 @@ void print_run_loop(const mara::config_t& run_config, timed_state_pair_t p)
         time_step(run_config, soln).value,
         nz,
         nz / us);
-
-    // auto dr = soln.vertices | nd::adjacent_diff();
-    // std::printf("| min(dr)=%.2e @ %lu max(dr)=%.2e @ %lu\n",
-    //     nd::min(dr).value, nd::argmin(dr)[0],
-    //     nd::max(dr).value, nd::argmax(dr)[0]);
 }
 
 auto side_effects(const mara::config_t& run_config, timed_state_pair_t p)
@@ -385,6 +412,12 @@ auto side_effects(const mara::config_t& run_config, timed_state_pair_t p)
         print_run_loop(run_config, p);            
 }
 
+auto time_point_sequence()
+{
+    using namespace std::chrono;
+    return seq::generate(high_resolution_clock::now(), [] (auto) { return high_resolution_clock::now(); });
+}
+
 
 
 
@@ -398,7 +431,7 @@ int main(int argc, const char* argv[])
     mara::pretty_print(std::cout, "config", run_config);
 
     auto simulation = seq::generate(initial_app_state(run_config), advance(run_config))
-    | seq::pair_with(control::time_point_sequence())
+    | seq::pair_with(time_point_sequence())
     | seq::window()
     | seq::take_while(should_continue(run_config));
 
