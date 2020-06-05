@@ -54,22 +54,22 @@ auto config_template()
     return mara::config_template()
 
     .item("nr",                   128)   // number of radial zones, per decade
-    .item("tfinal",              10.0)   // time to stop the simulation
+    .item("tfinal",             100.0)   // time to stop the simulation
     .item("router",               1e3)   // outer boundary radius
     .item("print",                 10)   // the number of iterations between terminal outputs
     .item("dfi",                 1.05)   // output interval (constant multiplier)
     .item("rk_order",               2)   // Runge-Kutta order (1, 2, or 3)
     .item("cfl",                 0.25)   // courant number
-    .item("mindr",               1e-3)   // minimum dr to impose in remeshing
-    .item("maxdr",               1e-2)   // maximum dr to impose in remeshing
+    .item("mindr",               1e-4)   // minimum dr to impose in remeshing
+    .item("maxdr",               1e-3)   // maximum dr to impose in remeshing
     .item("plm_theta",            1.0)   // PLM parameter
     .item("move",                   1)   // whether to move the cells
     // task.next_time = (task.next_time - reference_time) * factor + reference_time;
 
 
 //  Physical simulation variables:
-    .item("power_law_m",          3.0)      // Wind model power-law
-    .item("a_0",                 72e5)      // NS initial separation (in cm)
+    .item("power_law_m",          5.0)      // Wind model power-law
+    .item("a_0",                240e5)      // NS initial separation (in cm)
     .item("a_f",                 24e5)      // NS final separation (in cm)
     .item("t_f",               1.2e-3)      // Time to merger when a=af
     // .item("t_merger",             5.0)   // Time for merger when a=a0

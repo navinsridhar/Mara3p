@@ -1,5 +1,6 @@
 CXXFLAGS = -std=c++17 -Isrc -Wall -O3 -MMD -MP
 ALL_TARGETS = mara \
+	  problems/sedov
 #         examples/euler1d \
 #         examples/euler1d_moving_mesh \
 #         examples/euler1d_moving_mesh_plm \
