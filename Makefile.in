@@ -10,8 +10,8 @@ LDFLAGS  = -lhdf5
 #     examples/mhd3d \
 ALL_TARGETS = mara \
 	problems/sedov \
-	problems/sedov_step \
+	problems/sedov_step
 #TARGETS = $(ALL_TARGETS)
 TARGETS = mara \
 	  problems/sedov \
-	  problems/sedov_step
+	  #problems/sedov_step
