@@ -19,7 +19,7 @@
 # Build configuration (these may be over-ridden in the Makefile.in)
 # =====================================================================
 CXX      = mpicxx
-CXXFLAGS = -std=c++17 -Isrc -Wall -O0 -MMD -MP
+CXXFLAGS = -std=c++17 -Isrc -Wall -O3 -MMD -MP
 LDFLAGS  = -lhdf5
 ALL_TARGETS = mara \
 	examples/euler1d \
@@ -86,6 +86,9 @@ examples/computable: examples/computable.o src/parallel_computable.o
 	$(CXX) -o $@ $^ $(LDFLAGS)
 
 problems/sedov: problems/sedov.o
+	$(CXX) -o $@ $^ $(LDFLAGS)
+
+problems/sedov_step: problems/sedov_step.o
 	$(CXX) -o $@ $^ $(LDFLAGS)
 
 problems/sedov2d: problems/sedov2d.o src/scheme_sedov2d.o

@@ -55,7 +55,7 @@ def configure_axes(ax1, ax2, ax3, filename, focus=0.0):
             ax.set_xlim(lc / (1 + focus), lc * (1 + focus))
             ax.set_yscale('log')
         else:
-            ax.set_xlim(1.0, 1000.0)
+            ax.set_xlim(1.0, 2.0)
             ax.set_xscale('log')
             ax.set_yscale('log')
 
@@ -66,7 +66,7 @@ def configure_axes(ax1, ax2, ax3, filename, focus=0.0):
     ax2.set_ylabel(r'$p$')
     ax3.set_ylabel(r'$\Gamma \beta$')
     ax3.set_xlabel(r'Radius $(r / r_{\rm inner})$')
-    ax1.set_title(r'$t = {0:.1f}$'.format(h5f['time'][()]))
+    ax1.set_title(r'$t = {0:.3f}$'.format(h5f['time'][()]))
 
 
 

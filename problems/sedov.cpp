@@ -68,15 +68,14 @@ auto config_template()
 
 
 //  Physical simulation variables:
-    .item("power_law_m",          5.0)      // Wind model power-law
-    .item("a_0",                240e5)      // NS initial separation (in cm)
+    .item("power_law_m",          6.0)      // Wind model power-law
+    .item("a_0",                120e5)      // NS initial separation (in cm)
     .item("a_f",                 24e5)      // NS final separation (in cm)
     .item("t_f",               1.2e-3)      // Time to merger when a=af
-    // .item("t_merger",             5.0)   // Time for merger when a=a0
     .item("engine_Gamma0",        1.5)      // engine mass rate at a=a0
     .item("engine_edot0",         1.0)      // engine power at a=a0 in erg/s
     // .item("mdot_ambient",        1e-2)   // engine mass rate at a=a0
-    // .item("edot_ambient",        1e-2)   // engine power at a=a0
+    .item("edot_ambient",         5.0)      // engine power at a=a0
     // .item("gamma_ambient",        1.5)   // engine power at a=a0
     .item("engine_onset",        0.0);  
     //Used as reference point for time stepping. 
@@ -138,16 +137,17 @@ auto wind_mass_loss_rate(const mara::config_t & run_config)
     auto a            = major_axis(t);      
 
     auto smooth       = 0.5 * (1.0 + std::tanh((t - t_mf) / t_f));
-    // auto Mdot0        = unit_mass_rate(run_config.get_double("engine_mdot0"));
     auto Mdot0        = unit_power(run_config.get_double("engine_edot0")) / (run_config.get_double("engine_Gamma0") * unit_velocity(srhd::light_speed) * unit_velocity(srhd::light_speed) );
-    auto Mdot_ambient = Mdot0;
-    // auto Mdot_ambient = unit_mass_rate(run_config.get_double("mdot_ambient"));
+    // auto Mdot_ambient = unit_scalar(0.1) * Mdot0; //Change the norm to change the density of the external media
+    auto Mdot_ambient = Mdot0;    
     auto m            = unit_scalar(run_config.get_double("power_law_m"));
     auto Mdot         = Mdot0 * std::max(1.0, std::pow((a / a_0) , -m));
+    // printf("Mdot ambient = %e \n", Mdot_ambient);
+    // printf("Mdot = %e \n", Mdot);
     auto Mdot_smooth  = Mdot * (1.0 - smooth);
     auto Mdot_final   = Mdot_smooth + Mdot_ambient;
     return Mdot_final;
-    };
+   };
 }
 
 auto wind_power(const mara::config_t & run_config)
@@ -164,8 +164,8 @@ auto wind_power(const mara::config_t & run_config)
 
     auto smooth       = 0.5 * (1.0 + std::tanh((t - t_mf) / t_f));
     auto Edot0        = unit_power(run_config.get_double("engine_edot0"));
-    auto Edot_ambient = Edot0;
-    // auto Edot_ambient = unit_power(run_config.get_double("edot_ambient"));
+    auto Edot_ambient = unit_power(run_config.get_double("edot_ambient"));
+    // auto Edot_ambient = Edot0;    //Multiplying by a factor to increase the velocity of the upstream PWN.
     auto Edot         = Edot0 * std::max(1.0, std::pow((a / a_0) , -7.0));
     auto Edot_smooth  = Edot * (1.0 - smooth);
     auto Edot_final   = Edot_smooth + Edot_ambient;
@@ -184,7 +184,7 @@ auto wind_gamma_beta(const mara::config_t & run_config)
     auto c2            = srhd::light_speed * srhd::light_speed;
     // auto gamma_ambient = unit_scalar(run_config.get_double("gamma_ambient"));
     // auto gamma         = (Edot / (Mdot * c2)) + gamma_ambient;
-    auto gamma         = (Edot / (Mdot * c2));
+    auto gamma         = (Edot / (Mdot * c2)) + 1.01;
     auto u0            = std::sqrt(gamma * gamma - 1.0);
     // printf("Wind gamma = %e \n", gamma);
     return u0;

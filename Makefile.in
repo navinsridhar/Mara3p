@@ -1,11 +1,17 @@
+CXX      = mpicxx
 CXXFLAGS = -std=c++17 -Isrc -Wall -O3 -MMD -MP
+LDFLAGS  = -lhdf5
+# ALL_TARGETS = mara \
+# 	problems/sedov \
+# 	problems/sedov_step \
+#     examples/euler1d \
+#     examples/euler1d_moving_mesh \
+#     examples/euler1d_moving_mesh_plm \
+#     examples/mhd3d \
 ALL_TARGETS = mara \
-	  problems/sedov
-#         examples/euler1d \
-#         examples/euler1d_moving_mesh \
-#         examples/euler1d_moving_mesh_plm \
-#         examples/mhd3d \
-#         problems/sedov
+	problems/sedov \
+	problems/sedov_step \
 #TARGETS = $(ALL_TARGETS)
 TARGETS = mara \
-	  problems/sedov
+	  problems/sedov \
+	  problems/sedov_step

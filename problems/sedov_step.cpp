@@ -71,8 +71,8 @@ auto config_template()
     .item("a_f",                  2e6)   // NS final separation (in cm)
     .item("t_f",                 5e-4)   // Time to merger when a=af
     .item("t_merger",             5.0)   // Time for merger when a=a0
-    .item("engine_mdot0",         1e3)   // engine mass rate at a=a0
-    .item("engine_edot0",         1e1)   // engine power at a=a0
+    .item("engine_mdot0",         1e2)   // engine mass rate at a=a0
+    .item("engine_edot0",         1e2)   // engine power at a=a0
     .item("mdot_ambient",        1e-2)   // engine mass rate at a=a0
     .item("edot_ambient",        1e-2)   // engine power at a=a0
     .item("gamma_ambient",        1.5)   // engine power at a=a0
@@ -117,7 +117,7 @@ auto wind_mass_loss_rate(const mara::config_t & run_config)
     auto Mdot         = Mdot0;
     auto Mdot_smooth  = Mdot * (1.0 + smooth);
     // auto Mdot_final   = Mdot_smooth + Mdot_ambient;
-    auto Mdot_final = t < unit_time(0.1)+t_mf ? Mdot_smooth + Mdot_ambient : Mdot_ambient;
+    auto Mdot_final = t < unit_time(0.01)+t_mf ? Mdot_smooth + Mdot_ambient : Mdot_ambient;
     return Mdot_final;
     };
 }
@@ -138,7 +138,7 @@ auto wind_power(const mara::config_t & run_config)
     auto Edot         = Edot0;
     auto Edot_smooth  = Edot * (1.0 + 1e2*smooth);
     // auto Edot_final   = Edot_smooth + Edot_ambient;
-    auto Edot_final = t < unit_time(0.1)+t_mf ? Edot_smooth + Edot_ambient : Edot_ambient;
+    auto Edot_final = t < unit_time(0.01)+t_mf ? Edot_smooth + Edot_ambient : Edot_ambient;
     return Edot_final;
     };
 }
