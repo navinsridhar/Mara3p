@@ -47,7 +47,8 @@ template<
     typename RiemannSolverType,
     typename RecoverPrimitiveType,
     typename SourceTermsType,
-    typename MeshGeometryType>
+    typename MeshGeometryType,
+    typename ExecutionStrategy>
 
 state_with_vertices_t<ConservedType> advance(
 
@@ -59,6 +60,7 @@ state_with_vertices_t<ConservedType> advance(
     RecoverPrimitiveType                       recover_primitive,
     SourceTermsType                            source_terms,
     MeshGeometryType                           mesh_geometry,
+    ExecutionStrategy                          evaluate,
     double                                     plm_theta)
 {
     try {
@@ -66,12 +68,12 @@ state_with_vertices_t<ConservedType> advance(
         auto dv = mesh_geometry.cell_volumes (state.vertices);
         auto dx = mesh_geometry.cell_spacings(state.vertices);
         auto x0 = mesh_geometry.cell_centers (state.vertices);
-        auto p0 = state.conserved / dv | nd::map(recover_primitive) | nd::to_shared();
+        auto p0 = state.conserved / dv | nd::map(recover_primitive) | evaluate;
         auto s0 = nd::zip(p0, x0) | nd::map(source_terms) | nd::multiply(dv);
         auto gx = nd::zip(x0 | nd::adjacent_zip3(), p0 | nd::adjacent_zip3())
         | nd::map(mara::plm_gradient(plm_theta))
         | nd::extend_zeros()
-        | nd::to_shared();
+        | evaluate;
 
         auto [ibf, ibv] = riemann_solver(std::pair(inner_boundary_primitive, front(p0)));
         auto [obf, obv] = riemann_solver(std::pair(back(p0), outer_boundary_primitive));
@@ -81,13 +83,13 @@ state_with_vertices_t<ConservedType> advance(
         | nd::map(riemann_solver)
         | nd::extend_uniform_lower(std::pair(ibf, ibv))
         | nd::extend_uniform_upper(std::pair(obf, obv))
-        | nd::to_shared();
+        | evaluate;
 
         auto ff = fv | nd::map([] (auto a) { return std::get<0>(a); });
         auto vf = fv | nd::map([] (auto a) { return std::get<1>(a); });
-        auto df = ff | nd::multiply(da) | nd::adjacent_diff() | nd::to_shared();
-        auto x1 = (state.vertices  + (vf * dt))               | nd::to_shared();
-        auto u1 = (state.conserved + (s0 - df) * dt)          | nd::to_shared();
+        auto df = ff | nd::multiply(da) | nd::adjacent_diff() | evaluate;
+        auto x1 = (state.vertices  + (vf * dt))               | evaluate;
+        auto u1 = (state.conserved + (s0 - df) * dt)          | evaluate;
 
         return {
             state.iteration + 1,

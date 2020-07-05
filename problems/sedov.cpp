@@ -40,6 +40,7 @@
 #include "core_sequence.hpp"
 #include "core_util.hpp"
 #include "model_wind.hpp"
+#include "parallel_thread_pool.hpp"
 #include "physics_srhd.hpp"
 #include "scheme_mesh_geometry.hpp"
 #include "scheme_moving_mesh.hpp"
@@ -53,6 +54,7 @@ auto config_template()
 {
     return mara::config_template()
 
+    .item("threads",                1, "the number of concurrent threads to execute on (0 for hardware_concurrency)")
     .item("nr",                   128)   // number of radial zones, per decade
     .item("tfinal",             100.0)   // time to stop the simulation
     .item("router",               1e3)   // outer boundary radius
@@ -66,8 +68,7 @@ auto config_template()
     .item("move",                   1)   // whether to move the cells
     // task.next_time = (task.next_time - reference_time) * factor + reference_time;
 
-
-//  Physical simulation variables:
+    // Physical simulation variables:
     .item("power_law_m",          6.0)      // Wind model power-law
     .item("a_0",                120e5)      // NS initial separation (in cm)
     .item("a_f",                 24e5)      // NS final separation (in cm)
@@ -85,8 +86,46 @@ auto config_template()
     //(as used right after t=1).
 }
 
+
+
+
+//=============================================================================
+template<typename ProviderType>
+auto evaluate_on(mara::ThreadPool& pool, nd::array_t<ProviderType, 1> array)
+{
+    using value_type = typename nd::array_t<ProviderType, 1>::value_type;
+    auto nt = pool.size();
+    auto futures = std::vector<std::future<int>>();
+    auto result = nd::make_unique_array<value_type>(shape(array));
+
+    for (std::size_t t = 0; t < nt; ++t)
+    {
+        std::size_t start = (t + 0) * size(array) / nt;
+        std::size_t final = (t + 1) * size(array) / nt;
+
+        futures.push_back(pool.enqueue([&result, array, start, final]
+        {
+            for (std::size_t i = start; i < final; ++i)
+            {
+                result(i) = array(i);
+            }
+            return 0;
+        }));
+    }
+    for (auto& future : futures)
+    {
+        future.get();
+    }
+    return nd::make_shared_array(std::move(result));
+}
+
+
+
+
 static const auto gamma_law_index   = 4. / 3;
 static const auto temperature_floor = 1e-6;
+
+
 
 
 //=============================================================================
@@ -106,21 +145,20 @@ inline auto tasks(solution_with_tasks_t p)
     return p.second;
 }
 
-
 auto semi_major_axis(const mara::config_t & run_config)
 {
     return [run_config] (dimensional::unit_time t) -> dimensional::unit_length
     {
-    auto a_0          = unit_length(run_config.get_double("a_0"));
-    auto a_f          = unit_length(run_config.get_double("a_f"));
-    auto t_f          = unit_time(run_config.get_double("t_f"));
-    auto t_merger     = t_f * std::pow(a_0 / a_f, 4.0);       //Or just call t_merger from run_config
-    auto t_mf 	      = t_merger - t_f;
-    auto delta_t      = t_merger - t;
+        auto a_0          = unit_length(run_config.get_double("a_0"));
+        auto a_f          = unit_length(run_config.get_double("a_f"));
+        auto t_f          = unit_time(run_config.get_double("t_f"));
+        auto t_merger     = t_f * std::pow(a_0 / a_f, 4.0);       // Or just call t_merger from run_config
+        auto t_mf 	      = t_merger - t_f;
+        auto delta_t      = t_merger - t;
 
-    auto a            = a_0 * std::max(0.3333, std::pow(delta_t / t_mf , 0.25));    //0.333 = a_f/a_0
-    // auto a_final      = a + a_f;
-    return a;
+        auto a            = a_0 * std::max(0.3333, std::pow(delta_t / t_mf , 0.25));    // 0.333 = a_f/a_0
+        // auto a_final      = a + a_f;
+        return a;
     };
 }
 
@@ -134,12 +172,12 @@ auto wind_mass_loss_rate(const mara::config_t & run_config)
     auto t_f          = unit_time(run_config.get_double("t_f"));
     auto t_merger     = t_f * std::pow(a_0 / a_f, 4.0);       //Or just call t_merger from run_config          
     auto t_mf         = t_merger - t_f;
-    auto a            = major_axis(t);      
+    auto a            = major_axis(t);
 
     auto smooth       = 0.5 * (1.0 + std::tanh((t - t_mf) / t_f));
     auto Mdot0        = unit_power(run_config.get_double("engine_edot0")) / (run_config.get_double("engine_Gamma0") * unit_velocity(srhd::light_speed) * unit_velocity(srhd::light_speed) );
     // auto Mdot_ambient = unit_scalar(0.1) * Mdot0; //Change the norm to change the density of the external media
-    auto Mdot_ambient = Mdot0;    
+    auto Mdot_ambient = Mdot0;
     auto m            = unit_scalar(run_config.get_double("power_law_m"));
     auto Mdot         = Mdot0 * std::max(1.0, std::pow((a / a_0) , -m));
     // printf("Mdot ambient = %e \n", Mdot_ambient);
@@ -348,10 +386,12 @@ solution_t remesh(const mara::config_t& run_config, solution_t solution)
     return solution;
 }
 
-solution_t advance(const mara::config_t& run_config, solution_t solution)
+solution_t advance(const mara::config_t& run_config, mara::ThreadPool& pool, solution_t solution)
 {
-    auto base = [&run_config, dt = time_step(run_config, solution)] (solution_t soln)
+    auto base = [&run_config, &pool, dt = time_step(run_config, solution)] (solution_t soln)
     {
+        // auto evaluate            = nd::to_shared();
+        auto evaluate            = [&pool] (auto array) { return evaluate_on(pool, array); };
         auto move_cells          = run_config.get_int("move");
         auto plm_theta           = run_config.get_double("plm_theta");
         auto xhat                = geometric::unit_vector_on(1);
@@ -371,6 +411,7 @@ solution_t advance(const mara::config_t& run_config, solution_t solution)
             recover_primitive(),
             source_terms,
             mesh_geometry,
+            evaluate,
             plm_theta);
     };
     return remesh(run_config, control::advance_runge_kutta(base, run_config.get_int("rk_order"), solution));
@@ -383,12 +424,12 @@ control::task_t advance(const mara::config_t& run_config, control::task_t task, 
     return jump(task, time, run_config.get_double("dfi"), ref_time);
 }
 
-auto advance(const mara::config_t& run_config)
+auto advance(const mara::config_t& run_config, mara::ThreadPool& pool)
 {
-    return util::apply_to([run_config] (solution_t state, control::task_t task)
+    return util::apply_to([&run_config, &pool] (solution_t state, control::task_t task)
     {
         return std::pair(
-            advance(run_config, state),
+            advance(run_config, pool, state),
             advance(run_config, task, state.time));
     });
 }
@@ -464,9 +505,12 @@ int main(int argc, const char* argv[])
     .create()
     .update(mara::argv_to_string_map(argc, argv));
 
+    auto threads = run_config.get_int("threads");
+    auto pool = mara::ThreadPool(threads ? threads : std::thread::hardware_concurrency());
+
     mara::pretty_print(std::cout, "config", run_config);
 
-    auto simulation = seq::generate(initial_app_state(run_config), advance(run_config))
+    auto simulation = seq::generate(initial_app_state(run_config), advance(run_config, pool))
     | seq::pair_with(time_point_sequence())
     | seq::window()
     | seq::take_while(should_continue(run_config));
