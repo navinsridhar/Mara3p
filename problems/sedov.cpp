@@ -31,6 +31,7 @@
 #include "app_hdf5.hpp"
 #include "app_hdf5_config.hpp"
 #include "app_hdf5_dimensional.hpp"
+#include "app_hdf5_rational.hpp"
 #include "app_hdf5_ndarray.hpp"
 #include "app_hdf5_ndarray_dimensional.hpp"
 #include "app_hdf5_numeric_array.hpp"
@@ -53,37 +54,37 @@
 auto config_template()
 {
     return mara::config_template()
-
+    .item("restart",    std::string(), "the name of a checkpoint file to restart from")
     .item("threads",                1, "the number of concurrent threads to execute on (0 for hardware_concurrency)")
-    .item("nr",                   128)   // number of radial zones, per decade
-    .item("tfinal",             100.0)   // time to stop the simulation
-    .item("router",               1e3)   // outer boundary radius
-    .item("print",                 10)   // the number of iterations between terminal outputs
-    .item("dfi",                 1.05)   // output interval (constant multiplier)
-    .item("rk_order",               2)   // Runge-Kutta order (1, 2, or 3)
-    .item("cfl",                 0.25)   // courant number
-    .item("mindr",               1e-4)   // minimum dr to impose in remeshing
-    .item("maxdr",               1e-3)   // maximum dr to impose in remeshing
-    .item("plm_theta",            1.0)   // PLM parameter
-    .item("move",                   1)   // whether to move the cells
-    // task.next_time = (task.next_time - reference_time) * factor + reference_time;
+    .item("nr",                   128, "number of radial zones, per decade")
+    .item("tfinal",             100.0, "time to stop the simulation")
+    .item("router",               1e3, "outer boundary radius")
+    .item("print",                 10, "the number of iterations between terminal outputs")
+    .item("dfi",                 1.05, "output interval (constant multiplier)")
+    .item("rk_order",               2, "Runge-Kutta order (1, 2, or 3)")
+    .item("cfl",                 0.25, "courant number")
+    .item("mindr",               1e-4, "minimum dr to impose in remeshing")
+    .item("maxdr",               1e-3, "maximum dr to impose in remeshing")
+    .item("plm_theta",            1.0, "PLM parameter")
+    .item("move",                   1, "whether to move the cells")
+    .item("power_law_m",          6.0, "Wind model power-law")
+    .item("a_0",                120e5, "NS initial separation (in cm)")
+    .item("a_f",                 24e5, "NS final separation (in cm)")
+    .item("t_f",               1.2e-3, "Time to merger when a=af")
+    .item("engine_Gamma0",        1.5, "engine mass rate at a=a0")
+    .item("engine_edot0",         1.0, "engine power at a=a0 in erg/s")
+    .item("edot_ambient",         5.0, "engine power at a=a0")
+    .item("engine_onset",         0.0);  
 
-    // Physical simulation variables:
-    .item("power_law_m",          6.0)      // Wind model power-law
-    .item("a_0",                120e5)      // NS initial separation (in cm)
-    .item("a_f",                 24e5)      // NS final separation (in cm)
-    .item("t_f",               1.2e-3)      // Time to merger when a=af
-    .item("engine_Gamma0",        1.5)      // engine mass rate at a=a0
-    .item("engine_edot0",         1.0)      // engine power at a=a0 in erg/s
-    // .item("mdot_ambient",        1e-2)   // engine mass rate at a=a0
-    .item("edot_ambient",         5.0)      // engine power at a=a0
+    //  task.next_time = (task.next_time - reference_time) * factor + reference_time;
     // .item("gamma_ambient",        1.5)   // engine power at a=a0
-    .item("engine_onset",        0.0);  
-    //Used as reference point for time stepping. 
-    //If 0, then the time-step happens uniformly logarithmically from t=1. 
-    //If engine_onset > 0, then the time will be stepped logarithmically until that 
-    //point, and after t > engine_onset, the time-stepper resets to use smaller delta 
-    //(as used right after t=1).
+    // .item("mdot_ambient",        1e-2)   // engine mass rate at a=a0
+
+    // Used as reference point for time stepping. 
+    // If 0, then the time-step happens uniformly logarithmically from t=1. 
+    // If engine_onset > 0, then the time will be stepped logarithmically until that 
+    // point, and after t > engine_onset, the time-stepper resets to use smaller delta 
+    // (as used right after t=1).
 }
 
 
@@ -145,6 +146,68 @@ inline auto tasks(solution_with_tasks_t p)
     return p.second;
 }
 
+
+
+
+//=============================================================================
+auto recover_primitive()
+{
+    return [] (auto u) { return srhd::recover_primitive(u, gamma_law_index, temperature_floor); };
+}
+
+
+
+
+//=============================================================================
+void write_diagnostics(const mara::config_t& run_config, solution_t state, unsigned long count)
+{
+    auto fname     = util::format("sedov.%04lu.h5", count);
+    auto dv        = spherical_mesh_geometry_t::cell_volumes(state.vertices);
+    auto prim      = state.conserved | nd::divide(dv) | nd::map(recover_primitive()) | nd::to_shared();
+    auto file      = h5::File(fname, "w");
+
+    std::printf("Write diagnostics %s\n", fname.data());
+
+    h5::write(file, "vertices", state.vertices);
+    h5::write(file, "primitive", prim);
+    h5::write(file, "time", state.time);
+    h5::write(file, "run_config", run_config);
+}
+
+void write_checkpoint(const mara::config_t& run_config, solution_t state, control::task_t task)
+{
+    auto fname     = util::format("chkpt.%04lu.h5", task.count);
+    auto file      = h5::File(fname, "w");
+
+    std::printf("Write checkpoint %s\n", fname.data());
+
+    h5::write(file, "iteration", state.iteration);
+    h5::write(file, "time", state.time);
+    h5::write(file, "vertices", state.vertices);
+    h5::write(file, "conserved", state.conserved);
+    h5::write(file, "output_count", task.count);
+    h5::write(file, "output_next_time", task.next_time);
+    h5::write(file, "run_config", run_config);
+}
+
+void read_checkpoint(std::string fname, solution_t& state, control::task_t& task)
+{
+    auto file = h5::File(fname, "r");
+
+    std::printf("Read checkpoint %s\n", fname.data());
+
+    h5::read(file, "iteration", state.iteration);
+    h5::read(file, "time", state.time);
+    h5::read(file, "vertices", state.vertices);
+    h5::read(file, "conserved", state.conserved);
+    h5::read(file, "output_count", task.count);
+    h5::read(file, "output_next_time", task.next_time);
+}
+
+
+
+
+//=============================================================================
 auto semi_major_axis(const mara::config_t & run_config)
 {
     return [run_config] (dimensional::unit_time t) -> dimensional::unit_length
@@ -152,62 +215,59 @@ auto semi_major_axis(const mara::config_t & run_config)
         auto a_0          = unit_length(run_config.get_double("a_0"));
         auto a_f          = unit_length(run_config.get_double("a_f"));
         auto t_f          = unit_time(run_config.get_double("t_f"));
-        auto t_merger     = t_f * std::pow(a_0 / a_f, 4.0);       // Or just call t_merger from run_config
+        auto t_merger     = t_f * std::pow(a_0 / a_f, 4.0);
         auto t_mf 	      = t_merger - t_f;
         auto delta_t      = t_merger - t;
-
-        auto a            = a_0 * std::max(0.3333, std::pow(delta_t / t_mf , 0.25));    // 0.333 = a_f/a_0
-        // auto a_final      = a + a_f;
-        return a;
+        return a_0 * std::max(1. / 3, std::pow(delta_t / t_mf , 0.25));
     };
 }
 
 auto wind_mass_loss_rate(const mara::config_t & run_config)
 {
     auto major_axis = semi_major_axis(run_config);
+
     return [major_axis, run_config] (dimensional::unit_time t) -> dimensional::unit_mass_rate
     {
-    auto a_0          = unit_length(run_config.get_double("a_0"));
-    auto a_f          = unit_length(run_config.get_double("a_f"));
-    auto t_f          = unit_time(run_config.get_double("t_f"));
-    auto t_merger     = t_f * std::pow(a_0 / a_f, 4.0);       //Or just call t_merger from run_config          
-    auto t_mf         = t_merger - t_f;
-    auto a            = major_axis(t);
+        auto a_0          = unit_length(run_config.get_double("a_0"));
+        auto a_f          = unit_length(run_config.get_double("a_f"));
+        auto t_f          = unit_time(run_config.get_double("t_f"));
+        auto Edot0        = unit_power(run_config.get_double("engine_edot0"));
+        auto Gamma0       = run_config.get_double("engine_Gamma0");
+        auto power_law_m  = run_config.get_double("power_law_m");
+        auto t_merger     = t_f * std::pow(a_0 / a_f, 4.0);
+        auto t_mf         = t_merger - t_f;
+        auto a            = major_axis(t);
 
-    auto smooth       = 0.5 * (1.0 + std::tanh((t - t_mf) / t_f));
-    auto Mdot0        = unit_power(run_config.get_double("engine_edot0")) / (run_config.get_double("engine_Gamma0") * unit_velocity(srhd::light_speed) * unit_velocity(srhd::light_speed) );
-    // auto Mdot_ambient = unit_scalar(0.1) * Mdot0; //Change the norm to change the density of the external media
-    auto Mdot_ambient = Mdot0;
-    auto m            = unit_scalar(run_config.get_double("power_law_m"));
-    auto Mdot         = Mdot0 * std::max(1.0, std::pow((a / a_0) , -m));
-    // printf("Mdot ambient = %e \n", Mdot_ambient);
-    // printf("Mdot = %e \n", Mdot);
-    auto Mdot_smooth  = Mdot * (1.0 - smooth);
-    auto Mdot_final   = Mdot_smooth + Mdot_ambient;
-    return Mdot_final;
+        auto smooth       = 0.5 * (1.0 + std::tanh((t - t_mf) / t_f));
+        auto Mdot0        = Edot0 / (Gamma0 * srhd::light_speed * srhd::light_speed);
+        auto Mdot_ambient = Mdot0;
+        auto m            = power_law_m;
+        auto Mdot         = Mdot0 * std::max(1.0, std::pow((a / a_0) , -m));
+        auto Mdot_smooth  = Mdot * (1.0 - smooth);
+        auto Mdot_final   = Mdot_smooth + Mdot_ambient;
+        return Mdot_final;
    };
 }
 
 auto wind_power(const mara::config_t & run_config)
 {
     auto major_axis = semi_major_axis(run_config);
+
     return [major_axis, run_config] (dimensional::unit_time t) -> dimensional::unit_power
     {
-    auto a_0          = unit_length(run_config.get_double("a_0"));
-    auto a_f          = unit_length(run_config.get_double("a_f"));
-    auto t_f          = unit_time(run_config.get_double("t_f"));
-    auto t_merger     = t_f * std::pow(a_0 / a_f, 4.0);       //Or just call t_merger from run_config          
-    auto t_mf         = t_merger - t_f;
-    auto a            = major_axis(t);      
+        auto a_0          = unit_length(run_config.get_double("a_0"));
+        auto a_f          = unit_length(run_config.get_double("a_f"));
+        auto t_f          = unit_time(run_config.get_double("t_f"));
+        auto t_merger     = t_f * std::pow(a_0 / a_f, 4.0);
+        auto t_mf         = t_merger - t_f;
+        auto a            = major_axis(t);      
 
-    auto smooth       = 0.5 * (1.0 + std::tanh((t - t_mf) / t_f));
-    auto Edot0        = unit_power(run_config.get_double("engine_edot0"));
-    auto Edot_ambient = unit_power(run_config.get_double("edot_ambient"));
-    // auto Edot_ambient = Edot0;    //Multiplying by a factor to increase the velocity of the upstream PWN.
-    auto Edot         = Edot0 * std::max(1.0, std::pow((a / a_0) , -7.0));
-    auto Edot_smooth  = Edot * (1.0 - smooth);
-    auto Edot_final   = Edot_smooth + Edot_ambient;
-    return Edot_final;
+        auto smooth       = 0.5 * (1.0 + std::tanh((t - t_mf) / t_f));
+        auto Edot0        = unit_power(run_config.get_double("engine_edot0"));
+        auto Edot_ambient = unit_power(run_config.get_double("edot_ambient"));
+        auto Edot         = Edot0 * std::max(1.0, std::pow((a / a_0) , -7.0));
+        auto Edot_smooth  = Edot * (1.0 - smooth);
+        return Edot_smooth + Edot_ambient;
     };
 }
 
@@ -215,19 +275,18 @@ auto wind_gamma_beta(const mara::config_t & run_config)
 {
     auto mass_loss_rate = wind_mass_loss_rate(run_config);
     auto power          = wind_power(run_config);
+
     return [mass_loss_rate, power, run_config] (dimensional::unit_time t) -> dimensional::unit_scalar
     { 
-    auto Edot          = power(t);                     
-    auto Mdot          = mass_loss_rate(t);                    
-    auto c2            = srhd::light_speed * srhd::light_speed;
-    // auto gamma_ambient = unit_scalar(run_config.get_double("gamma_ambient"));
-    // auto gamma         = (Edot / (Mdot * c2)) + gamma_ambient;
-    auto gamma         = (Edot / (Mdot * c2)) + 1.01;
-    auto u0            = std::sqrt(gamma * gamma - 1.0);
-    // printf("Wind gamma = %e \n", gamma);
-    return u0;
+        auto Edot   = power(t);                     
+        auto Mdot   = mass_loss_rate(t);                    
+        auto c2     = srhd::light_speed * srhd::light_speed;
+        auto gamma  = (Edot / (Mdot * c2)) + 1.01;
+        return std::sqrt(gamma * gamma - 1.0);
     };
 }
+
+
 
 
 //=============================================================================
@@ -241,16 +300,11 @@ auto wind_profile(const mara::config_t& run_config, unit_length r, unit_time t)
 
 auto initial_condition(const mara::config_t& run_config)
 {
-    //For a stationary medium with a given (density, pressure):
-    //return [run_config] (unit_length r) { return srhd::primitive(0.01 , 0.001); };
+    // For a stationary medium with a given (density, pressure):
+    // return [run_config] (unit_length r) { return srhd::primitive(0.01 , 0.001); };
 
-    //For a wind with 1/r^2 density profile:
+    // For a wind with 1/r^2 density profile:
     return [run_config] (unit_length r) { return wind_profile(run_config, r, 1.0); };
-
-}
-auto recover_primitive()
-{
-    return [] (auto u) { return srhd::recover_primitive(u, gamma_law_index, temperature_floor); };
 }
 
 auto riemann_solver_for(geometric::unit_vector_t nhat, bool move)
@@ -291,14 +345,23 @@ solution_t initial_solution_state(const mara::config_t& run_config)
     auto dv = spherical_mesh_geometry_t::cell_volumes(xv);
     auto p0 = xv | nd::adjacent_mean() | nd::map(initial_condition(run_config));
     auto u0 = p0 | nd::map([] (auto p) { return srhd::conserved_density(p, gamma_law_index); });
+
     // Time starts from T0=0.0
     return {0, 0.0, xv, (u0 * dv) | nd::to_shared()};
+
     // Time starts from T0=1.0
     // return {0, 1.0, xv, (u0 * dv) | nd::to_shared()};
 }
 
 solution_with_tasks_t initial_app_state(const mara::config_t& run_config)
 {
+    if (! run_config.get_string("restart").empty())
+    {
+        auto task = control::task("write_diagnostics");
+        auto state = solution_t();
+        read_checkpoint(run_config.get_string("restart"), state, task);
+        return std::pair(state, task);
+    }
     return std::pair(initial_solution_state(run_config), control::task("write_diagnostics", 1e-2));
 }
 
@@ -438,21 +501,6 @@ auto advance(const mara::config_t& run_config, mara::ThreadPool& pool)
 
 
 //=============================================================================
-void write_diagnostics(const mara::config_t& run_config, solution_t state, unsigned long count)
-{
-    auto fname     = util::format("sedov.%04lu.h5", count);
-    auto dv        = spherical_mesh_geometry_t::cell_volumes(state.vertices);
-    auto prim      = state.conserved | nd::divide(dv) | nd::map(recover_primitive()) | nd::to_shared();
-    auto file      = h5::File(fname, "w");
-
-    std::printf("Write diagnostics %s\n", fname.data());
-
-    h5::write(file, "vertices", state.vertices);
-    h5::write(file, "primitive", prim);
-    h5::write(file, "time", state.time);
-    h5::write(file, "run_config", run_config);
-}
-
 auto should_continue(const mara::config_t& run_config)
 {
     return [tfinal = run_config.get_double("tfinal")] (timed_state_pair_t p)
@@ -483,10 +531,15 @@ auto side_effects(const mara::config_t& run_config, timed_state_pair_t p)
     auto last_task = tasks(control::last_state(p));
 
     if (this_task.count != last_task.count)
+    {
         write_diagnostics(run_config, last_soln, last_task.count);
+        write_checkpoint(run_config, last_soln, last_task);
+    }
 
     if (long(this_soln.iteration) % run_config.get_int("print") == 0)
+    {
         print_run_loop(run_config, p);            
+    }
 }
 
 auto time_point_sequence()
@@ -495,15 +548,27 @@ auto time_point_sequence()
     return seq::generate(high_resolution_clock::now(), [] (auto) { return high_resolution_clock::now(); });
 }
 
+mara::config_parameter_map_t restart_run_config(const mara::config_string_map_t& args)
+{
+    if (args.count("restart"))
+    {
+        auto file = h5::File(args.at("restart"), "r");
+        return h5::read<mara::config_parameter_map_t>(file, "run_config");
+    }
+    return {};
+}
+
 
 
 
 //=============================================================================
 int main(int argc, const char* argv[])
 {
+    auto args = mara::argv_to_string_map(argc, argv);
     auto run_config = config_template()
     .create()
-    .update(mara::argv_to_string_map(argc, argv));
+    .update(restart_run_config(args))
+    .update(args);
 
     auto threads = run_config.get_int("threads");
     auto pool = mara::ThreadPool(threads ? threads : std::thread::hardware_concurrency());
