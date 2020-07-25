@@ -56,7 +56,7 @@ auto config_template()
     return mara::config_template()
     .item("restart",    std::string(), "the name of a checkpoint file to restart from")
     .item("threads",                1, "the number of concurrent threads to execute on (0 for hardware_concurrency)")
-    .item("nr",                   128, "number of radial zones, per decade")
+    .item("nr",                   256, "number of radial zones, per decade")
     .item("tfinal",             100.0, "time to stop the simulation")
     .item("router",               1e3, "outer boundary radius")
     .item("print",                 10, "the number of iterations between terminal outputs")
@@ -68,12 +68,12 @@ auto config_template()
     .item("plm_theta",            1.0, "PLM parameter")
     .item("move",                   1, "whether to move the cells")
     .item("power_law_m",          6.0, "Wind model power-law")
-    .item("a_0",                120e5, "NS initial separation (in cm)")
+    .item("a_0",                240e5, "NS initial separation (in cm)")
     .item("a_f",                 24e5, "NS final separation (in cm)")
     .item("t_f",               1.2e-3, "Time to merger when a=af")
     .item("engine_Gamma0",        1.5, "engine mass rate at a=a0")
     .item("engine_edot0",         1.0, "engine power at a=a0 in erg/s")
-    .item("edot_ambient",         5.0, "engine power at a=a0")
+    .item("edot_ambient",         1.0, "engine power at a=a0")
     .item("engine_onset",         0.0);  
 
     //  task.next_time = (task.next_time - reference_time) * factor + reference_time;
@@ -218,7 +218,7 @@ auto semi_major_axis(const mara::config_t & run_config)
         auto t_merger     = t_f * std::pow(a_0 / a_f, 4.0);
         auto t_mf 	      = t_merger - t_f;
         auto delta_t      = t_merger - t;
-        return a_0 * std::max(1. / 3, std::pow(delta_t / t_mf , 0.25));
+        return a_0 * std::max(1. / 10., std::pow(delta_t / t_mf , 0.25));
     };
 }
 
