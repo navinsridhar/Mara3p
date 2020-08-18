@@ -72,7 +72,7 @@ auto config_template()
     .item("a_f",                 24e5, "NS final separation (in cm)")
     .item("t_f",               1.2e-3, "Time to merger when a=af")
     .item("engine_Gamma0",        1.5, "engine mass rate at a=a0")
-    .item("engine_edot0",         1.0, "engine power at a=a0 in erg/s")
+    .item("engine_edot0",         1.0, "engine power at a=a0")
     .item("edot_ambient",         1.0, "engine power at a=a0")
     .item("engine_onset",         0.0);  
 
@@ -281,7 +281,7 @@ auto wind_gamma_beta(const mara::config_t & run_config)
         auto Edot   = power(t);                     
         auto Mdot   = mass_loss_rate(t);                    
         auto c2     = srhd::light_speed * srhd::light_speed;
-        auto gamma  = (Edot / (Mdot * c2)) + 1.5;
+        auto gamma  = (Edot / (Mdot * c2)) + 1.01;
         return std::sqrt(gamma * gamma - 1.0);
     };
 }
