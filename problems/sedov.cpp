@@ -57,7 +57,7 @@ auto config_template()
     .item("restart",    std::string(), "the name of a checkpoint file to restart from")
     .item("threads",                1, "the number of concurrent threads to execute on (0 for hardware_concurrency)")
     .item("nr",                   256, "number of radial zones, per decade")
-    .item("tfinal",             100.0, "time to stop the simulation")
+    .item("tfinal",            1000.0, "time to stop the simulation")
     .item("router",               1e3, "outer boundary radius")
     .item("print",                 10, "the number of iterations between terminal outputs")
     .item("dfi",                 1.05, "output interval (constant multiplier)")
@@ -281,7 +281,7 @@ auto wind_gamma_beta(const mara::config_t & run_config)
         auto Edot   = power(t);                     
         auto Mdot   = mass_loss_rate(t);                    
         auto c2     = srhd::light_speed * srhd::light_speed;
-        auto gamma  = (Edot / (Mdot * c2)) + 1.01;
+        auto gamma  = (Edot / (Mdot * c2)) + 1.1;
         return std::sqrt(gamma * gamma - 1.0);
     };
 }
