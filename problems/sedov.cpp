@@ -281,7 +281,7 @@ auto wind_gamma_beta(const mara::config_t & run_config)
         auto Edot   = power(t);                     
         auto Mdot   = mass_loss_rate(t);                    
         auto c2     = srhd::light_speed * srhd::light_speed;
-        auto gamma  = (Edot / (Mdot * c2)) + 1.1;
+        auto gamma  = (Edot / (Mdot * c2)) + 1.5;
         return std::sqrt(gamma * gamma - 1.0);
     };
 }
