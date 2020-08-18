@@ -205,8 +205,6 @@ void read_checkpoint(std::string fname, solution_t& state, control::task_t& task
 }
 
 
-
-
 //=============================================================================
 auto semi_major_axis(const mara::config_t & run_config)
 {
@@ -215,10 +213,11 @@ auto semi_major_axis(const mara::config_t & run_config)
         auto a_0          = unit_length(run_config.get_double("a_0"));
         auto a_f          = unit_length(run_config.get_double("a_f"));
         auto t_f          = unit_time(run_config.get_double("t_f"));
-        auto t_merger     = t_f * std::pow(a_0 / a_f, 4.0);
+        double xi         = a_0 / a_f;
+        auto t_merger     = t_f * std::pow(xi, 4.0);
         auto t_mf 	      = t_merger - t_f;
         auto delta_t      = t_merger - t;
-        return a_0 * std::max(1. / 10., std::pow(delta_t / t_mf , 0.25));
+        return a_0 * std::max(1.0 / xi, std::pow(delta_t / t_mf , 0.25));
     };
 }
 
@@ -234,7 +233,8 @@ auto wind_mass_loss_rate(const mara::config_t & run_config)
         auto Edot0        = unit_power(run_config.get_double("engine_edot0"));
         auto Gamma0       = run_config.get_double("engine_Gamma0");
         auto power_law_m  = run_config.get_double("power_law_m");
-        auto t_merger     = t_f * std::pow(a_0 / a_f, 4.0);
+        double xi         = a_0 / a_f;
+        auto t_merger     = t_f * std::pow(xi, 4.0);
         auto t_mf         = t_merger - t_f;
         auto a            = major_axis(t);
 
@@ -258,7 +258,8 @@ auto wind_power(const mara::config_t & run_config)
         auto a_0          = unit_length(run_config.get_double("a_0"));
         auto a_f          = unit_length(run_config.get_double("a_f"));
         auto t_f          = unit_time(run_config.get_double("t_f"));
-        auto t_merger     = t_f * std::pow(a_0 / a_f, 4.0);
+        double xi         = a_0 / a_f;
+        auto t_merger     = t_f * std::pow(xi, 4.0);
         auto t_mf         = t_merger - t_f;
         auto a            = major_axis(t);      
 
