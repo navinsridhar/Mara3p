@@ -56,7 +56,7 @@ auto config_template()
     return mara::config_template()
     .item("restart",    std::string(), "the name of a checkpoint file to restart from")
     .item("threads",                1, "the number of concurrent threads to execute on (0 for hardware_concurrency)")
-    .item("nr",                   256, "number of radial zones, per decade")
+    .item("nr",                   512, "number of radial zones, per decade")
     .item("tfinal",            1000.0, "time to stop the simulation")
     .item("router",               1e3, "outer boundary radius")
     .item("print",                 10, "the number of iterations between terminal outputs")
@@ -212,12 +212,14 @@ auto semi_major_axis(const mara::config_t & run_config)
     {
         auto a_0          = unit_length(run_config.get_double("a_0"));
         auto a_f          = unit_length(run_config.get_double("a_f"));
-        auto t_f          = unit_time(run_config.get_double("t_f"));
         double xi         = a_0 / a_f;
+        auto t_f          = unit_time(run_config.get_double("t_f"));
         auto t_merger     = t_f * std::pow(xi, 4.0);
         auto t_mf 	      = t_merger - t_f;
         auto delta_t      = t_merger - t;
-        return a_0 * std::max(1.0 / xi, std::pow(delta_t / t_mf , 0.25));
+        // std::printf("xi= %f, 1/xi = %f\n", xi, 1.0/xi);
+        auto a            = a_0 * std::max(1.0 / xi, std::pow(delta_t / t_mf , 0.25));
+        return a;
     };
 }
 
@@ -229,15 +231,16 @@ auto wind_mass_loss_rate(const mara::config_t & run_config)
     {
         auto a_0          = unit_length(run_config.get_double("a_0"));
         auto a_f          = unit_length(run_config.get_double("a_f"));
+        double xi         = a_0 / a_f;
         auto t_f          = unit_time(run_config.get_double("t_f"));
+        auto t_merger     = t_f * std::pow(xi, 4.0);
+        auto t_mf         = t_merger - t_f;
         auto Edot0        = unit_power(run_config.get_double("engine_edot0"));
         auto Gamma0       = run_config.get_double("engine_Gamma0");
         auto power_law_m  = run_config.get_double("power_law_m");
-        double xi         = a_0 / a_f;
-        auto t_merger     = t_f * std::pow(xi, 4.0);
-        auto t_mf         = t_merger - t_f;
-        auto a            = major_axis(t);
 
+        auto a            = major_axis(t);
+        // std::printf("a= %f\n", a);
         auto smooth       = 0.5 * (1.0 + std::tanh((t - t_mf) / t_f));
         auto Mdot0        = Edot0 / (Gamma0 * srhd::light_speed * srhd::light_speed);
         auto Mdot_ambient = Mdot0;
@@ -257,8 +260,8 @@ auto wind_power(const mara::config_t & run_config)
     {
         auto a_0          = unit_length(run_config.get_double("a_0"));
         auto a_f          = unit_length(run_config.get_double("a_f"));
-        auto t_f          = unit_time(run_config.get_double("t_f"));
         double xi         = a_0 / a_f;
+        auto t_f          = unit_time(run_config.get_double("t_f"));
         auto t_merger     = t_f * std::pow(xi, 4.0);
         auto t_mf         = t_merger - t_f;
         auto a            = major_axis(t);      
